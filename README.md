@@ -1,2 +1,2 @@
-# DEPARTMENT
+# OpsResolve
 um hackathon
