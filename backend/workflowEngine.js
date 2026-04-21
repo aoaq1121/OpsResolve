@@ -1,34 +1,84 @@
-import { callGLM } from "./glmService.js";
+// services/workflowEngine.js
 
-export async function runAgentLoop(input) {
+function normalizeSeverity(score) {
+  if (score >= 70) return "High";
+  if (score >= 40) return "Medium";
+  return "Low";
+}
 
-  // STEP 1: THINK (extract info)
-  const extracted = await callGLM("inputAgent", input);
+function decideAction(severity) {
+  switch (severity) {
+    case "High":
+      return "ESCALATE";
+    case "Medium":
+      return "RESCHEDULE";
+    case "Low":
+    default:
+      return "COORDINATE";
+  }
+}
 
-  // STEP 2: CHECK completeness
-  if (!extracted.resource || !extracted.time) {
-    return {
-      status: "NEED_MORE_INFO",
-      missing: ["resource", "time"]
-    };
+function calculateConflictScore(newRecord, existingRecord) {
+  let score = 0;
+
+  if (!existingRecord) return score;
+
+  if (
+    newRecord.equipment &&
+    existingRecord.equipment &&
+    newRecord.equipment === existingRecord.equipment
+  ) {
+    score += 50;
   }
 
-  // STEP 3: THINK (detect conflict)
-  const conflict = await callGLM("conflictAgent", extracted);
-
-  if (!conflict.conflict) {
-    return { status: "NO_CONFLICT" };
+  if (
+    newRecord.location &&
+    existingRecord.location &&
+    newRecord.location === existingRecord.location
+  ) {
+    score += 30;
   }
 
-  // STEP 4: THINK (impact)
-  const impact = await callGLM("impactAgent", conflict);
+  if (
+    newRecord.shift &&
+    existingRecord.shift &&
+    newRecord.shift === existingRecord.shift
+  ) {
+    score += 20;
+  }
 
-  // STEP 5: THINK (decision)
-  const decision = await callGLM("decisionAgent", impact);
+  if (newRecord.department !== existingRecord.department) {
+    score += 10;
+  }
+
+  if (
+    (newRecord.department === "Production" && existingRecord.department === "Maintenance") ||
+    (newRecord.department === "Maintenance" && existingRecord.department === "Production")
+  ) {
+    score += 20;
+  }
+
+  if (newRecord.priority === "Critical") score += 20;
+  if (newRecord.impact === "Full line stop") score += 30;
+
+  return score;
+}
+
+function processRecordWorkflow(newRecord, existingRecord = null) {
+  const score = calculateConflictScore(newRecord, existingRecord);
+  const severity = normalizeSeverity(score);
+  const actionType = decideAction(severity);
 
   return {
-    conflict,
-    impact,
-    decision
+    conflict: !!existingRecord,
+    score,
+    severity,
+    actionType,
+    context: {
+      existingRecordId: existingRecord?.recordId || null,
+      reason: existingRecord ? "Resource or schedule overlap detected" : "No conflict detected",
+    },
   };
 }
+
+module.exports = { processRecordWorkflow };

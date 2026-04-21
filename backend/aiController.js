@@ -1,46 +1,55 @@
-/*
-Ai controller:
-1. Receives request
-2. Validates input
-3. Sends to workflow engine
-4. Returns AI result
-*/
-import { runAgentLoop } from "./workflowEngine.js";
+// controllers/aiController.js
+const { processRecordWorkflow } = require("../services/workflowEngine");
+const mockRecords = require("../data/mockRecords");
 
-/**
- * AI Controller
- * Entry point for all AI requests from frontend
- */
+function detectConflict(record) {
+  return mockRecords.find((item) => {
+    const sameEquipment =
+      item.equipment && record.equipment && item.equipment === record.equipment;
 
-export async function analyzeConflict(req, res) {
+    const sameLocation =
+      item.location && record.location && item.location === record.location;
+
+    const sameShift =
+      item.shift && record.shift && item.shift === record.shift;
+
+    const differentDepartment =
+      item.department && record.department && item.department !== record.department;
+
+    return (
+      item.status !== "closed" &&
+      differentDepartment &&
+      (sameEquipment || sameLocation || sameShift)
+    );
+  }) || null;
+}
+
+const aiController = async (req, res) => {
   try {
-    // STEP 1: Get data from frontend
-    const input = req.body;
+    const record = req.body;
 
-    if (!input || !input.user_input) {
+    if (!record.title || !record.category || !record.description) {
       return res.status(400).json({
-        error: "Missing user_input"
+        success: false,
+        message: "Missing required fields",
       });
     }
 
-    console.log("📥 Received request:", input);
+    const conflictMatch = detectConflict(record);
+    const result = processRecordWorkflow(record, conflictMatch);
 
-    // STEP 2: Send to AI workflow engine
-    const aiResult = await runAgentLoop(input);
-
-    // STEP 3: Return result to frontend
     return res.status(200).json({
       success: true,
-      data: aiResult
+      data: result,
     });
-
   } catch (error) {
     console.error("AI Controller Error:", error);
 
     return res.status(500).json({
       success: false,
-      error: "AI processing failed",
-      message: error.message
+      message: "Internal server error",
     });
   }
-}
+};
+
+module.exports = { aiController };
