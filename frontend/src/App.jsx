@@ -4,6 +4,7 @@ import mockConflicts from "./data/mockConflicts";
 import { ROLES, getVisibleTabs } from "./constants/appConstants";
 import { EntryScreen } from "./components/EntryScreen";
 import { Workspace } from "./components/Workspace";
+import { GlobalAlertBanner } from "./components/GlobalAlertBanner";
 
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
@@ -14,6 +15,16 @@ export default function App() {
 
   const openConflictCount = mockConflicts.filter((c) => c.status !== "resolved").length;
   const tabs = getVisibleTabs(role);
+
+  function App() {
+  return (
+    <div className="app-container">
+      <GlobalAlertBanner />  {/* This makes it visible to everyone, always */}
+      <Navbar />
+      <MainContent />
+    </div>
+    );
+  }
 
   function handleContinue() {
     if (!role || !department) {
