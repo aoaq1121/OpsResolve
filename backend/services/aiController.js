@@ -1,40 +1,23 @@
 // controllers/aiController.js
-// Simple 2-Tier Workflow: Z.AI GLM (Primary) + Rule-Based Fallback
+// Simple 2-Tier Workflow: Z.AI GLM (Primary) + DUMB Fallback (Pattern Matching Only)
 
 const { callGLMWithZ } = require("./glmServices");
-const mockRecords = require("../data/mockRecords");
-
-/**
- * Rule-Based Fallback: Simple conflict detection for when GLM is unavailable
- */
-function detectConflictRuleBased(record) {
-  return mockRecords.find((item) => {
-    const sameEquipment =
-      item.equipment && record.equipment && item.equipment === record.equipment;
-    const sameLocation =
-      item.location && record.location && item.location === record.location;
-    const sameShift = item.shift && record.shift && item.shift === record.shift;
-    const differentDepartment =
-      item.department && record.department && item.department !== record.department;
-
-    return (
-      item.status !== "closed" &&
-      differentDepartment &&
-      (sameEquipment || sameLocation || sameShift)
-    );
-  }) || null;
-}
+const { detectConflictSimple, buildFallbackResponse } = require("./workflowEngine");
+const mockRecords = require("../mockRecords");
 
 /**
  * Main AI Controller: 2-Tier System
  * 
- * Tier 1: Z.AI GLM (Primary)
+ * Tier 1: Z.AI GLM (Primary) ✅ INTELLIGENT
  *   - Performs 4-stage reasoning
  *   - Returns structured decision with confidence
+ *   - Understands context, evaluates trade-offs
  * 
- * Tier 2: Rule-Based Fallback (Safety net)
- *   - Simple conflict detection
- *   - Lower confidence (40%)
+ * Tier 2: DUMB Fallback (Safety net) ❌ SIMPLE
+ *   - Only pattern matching: same equipment + different department
+ *   - NO reasoning, NO analysis, NO intelligence
+ *   - Confidence: 20% (vs GLM's 85%)
+ *   - Proves GLM is ESSENTIAL
  */
 const aiController = async (req, res) => {
   try {
@@ -53,7 +36,7 @@ const aiController = async (req, res) => {
     }
 
     // ════════════════════════════════════════════════════════════════
-    // STEP 2: TRY Z.AI GLM (Primary Tier)
+    // STEP 2: TRY Z.AI GLM (Primary Tier) - INTELLIGENT REASONING
     // ════════════════════════════════════════════════════════════════
     console.log("📤 Calling Z.AI GLM for 4-stage reasoning...");
     const glmResult = await callGLMWithZ("unifiedAgent", record);
@@ -62,55 +45,37 @@ const aiController = async (req, res) => {
     // STEP 3: HANDLE RESPONSE (GLM or Fallback)
     // ════════════════════════════════════════════════════════════════
     if (glmResult.error) {
-      // GLM FAILED → Use Rule-Based Fallback (Tier 2)
-      console.warn("⚠️ GLM unavailable, switching to rule-based fallback");
+      // GLM FAILED → Use DUMB Fallback (Tier 2)
+      // ⚠️ This shows what system can do WITHOUT intelligent reasoning
+      console.warn("⚠️ GLM unavailable, switching to DUMB pattern-matching fallback");
       
-      const conflictMatch = detectConflictRuleBased(record);
+      const conflictMatch = detectConflictSimple(mockRecords, record);
+      const fallbackStages = buildFallbackResponse(!!conflictMatch, record);
+      
       const fallbackResponse = {
         success: true,
         data: {
           executionId: `exec_${Date.now()}_fallback`,
-          source: "rule-based-fallback",
+          source: "dumb-fallback",
+          warning: "⚠️ GLM unavailable - System degraded to pattern matching (confidence 20%)",
           processingTime: Date.now() - startTime,
           timestamp: new Date().toISOString(),
           
-          // Stage 1: Just echo the input
-          input_understanding: {
-            extracted_fields: record,
-          },
+          // ⚠️ All 4 stages are dumb defaults (no reasoning)
+          input_understanding: fallbackStages.stage1_understanding,
+          conflict_analysis: fallbackStages.stage2_conflict_detection,
+          impact_analysis: fallbackStages.stage3_impact_analysis,
+          decision: fallbackStages.stage4_decision,
           
-          // Stage 2: Simple conflict detection
-          conflict_analysis: {
-            conflict: !!conflictMatch,
-            conflict_type: conflictMatch ? "Resource Clash" : "None",
-            severity: conflictMatch ? "Medium" : "Low",
-            reasoning: "Rule-based detection (GLM unavailable)",
-          },
-          
-          // Stage 3: Basic impact
-          impact_analysis: {
-            impact_level: conflictMatch ? "Medium" : "Low",
-            root_cause: conflictMatch ? "Resource overlap detected" : "No conflict",
-            business_impact: conflictMatch ? "Potential operational disruption" : "None",
-            risk_level: conflictMatch ? "Medium" : "Low",
-          },
-          
-          // Stage 4: Simple recommendation
-          decision: {
-            recommendation: conflictMatch 
-              ? "Reschedule to avoid conflict" 
-              : "Proceed as planned",
-            action_type: conflictMatch ? "RESCHEDULE" : "APPROVE",
-            rationale: "Using fallback rules (GLM unavailable)",
-            alternatives: conflictMatch 
-              ? ["Coordinate with other department", "Use alternative resource"]
-              : [],
-            escalation_needed: false,
-            confidence: 40, // Low confidence due to fallback
-          },
-          
-          // Warning indicator
-          warning: "GLM API unavailable - using rule-based fallback",
+          // Diagnostic: Show what fallback couldn't do
+          fallback_limitations: {
+            cannot_parse_natural_language: true,
+            cannot_reason_about_context: true,
+            cannot_analyze_root_causes: true,
+            cannot_evaluate_tradeoffs: true,
+            cannot_provide_intelligent_decisions: true,
+            why_glm_is_essential: "Without GLM, system is just a dumb pattern matcher"
+          }
         },
       };
       
@@ -124,7 +89,7 @@ const aiController = async (req, res) => {
     const glmDecision = glmReasoning.stage4_decision || glmReasoning;
 
     // ════════════════════════════════════════════════════════════════
-    // STEP 4: BUILD STRUCTURED RESPONSE FROM GLM
+    // STEP 4: BUILD STRUCTURED RESPONSE FROM GLM (INTELLIGENT)
     // ════════════════════════════════════════════════════════════════
     const response = {
       success: true,
@@ -135,19 +100,19 @@ const aiController = async (req, res) => {
         processingTime: Date.now() - startTime,
         timestamp: new Date().toISOString(),
 
-        // 🟢 STAGE 1: Input Understanding (GLM parsed unstructured input)
+        // 🟢 STAGE 1: Input Understanding (GLM UNDERSTOOD context)
         input_understanding: glmReasoning.stage1_understanding || {
           extracted_fields: record,
         },
 
-        // 🟡 STAGE 2: Conflict Detection (GLM detected conflicts)
+        // 🟡 STAGE 2: Conflict Detection (GLM REASONED about conflicts)
         conflict_analysis: glmReasoning.stage2_conflict_detection || {
           conflict: false,
           conflict_type: "None",
           severity: "Low",
         },
 
-        // 🟠 STAGE 3: Impact Analysis (GLM analyzed root cause & business impact)
+        // 🟠 STAGE 3: Impact Analysis (GLM ANALYZED root causes)
         impact_analysis: glmReasoning.stage3_impact_analysis || {
           impact_level: "Low",
           root_cause: "No conflict detected",
@@ -155,7 +120,7 @@ const aiController = async (req, res) => {
           risk_level: "Low",
         },
 
-        // 🔴 STAGE 4: Decision & Recommendation (GLM made the decision)
+        // 🔴 STAGE 4: Decision & Recommendation (GLM EVALUATED trade-offs)
         decision: {
           recommendation: glmDecision.recommendation || "No action needed",
           action_type: glmDecision.action_type || "APPROVE",

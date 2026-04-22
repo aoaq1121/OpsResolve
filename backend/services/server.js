@@ -1,7 +1,7 @@
 // server.js
 const express = require("express");
 const cors = require("cors");
-const { aiController } = require("./controllers/aiController");
+const { aiController } = require("./aiController");
 
 const app = express();
 
