@@ -54,23 +54,20 @@ export function NewRecord({ onViewConflicts, department }) {
       // Try to detect whether the backend says there is a conflict
       const data = result?.data ?? result;
 
-      const conflictDetected =
-        data?.status === "CONFLICT_DETECTED" ||
-        data?.conflict?.conflict === true ||
-        data?.conflict === true;
+      const conflictDetected = data?.conflict_analysis?.conflict === true;
 
       // If the AI says there is a conflict, show the modal
       if (conflictDetected) {
         // Build a display object for the modal.
         // This keeps the UI working even if backend response format changes a little.
         setDetectedConflict({
-          conflictId: data?.conflictId || `AI-${Date.now()}`,
-          severity: data?.impact?.severity || "MEDIUM",
+          conflictId: data?.conflictId || data?.executionId || `AI-${Date.now()}`,
+          severity: data?.conflict_analysis?.severity || "Medium",
           conflictReason:
-            data?.conflict?.reason ||
+            data?.conflict_analysis?.conflict_reason ||
             data?.message ||
             "AI detected a possible scheduling/resource conflict.",
-          departmentsInvolved: data?.impact?.affected_departments || [department].filter(Boolean),
+          departmentsInvolved: data?.conflict_analysis?.conflicting_departments || [department].filter(Boolean),
           recommendation:
             data?.decision?.recommendation ||
             data?.recommendation ||

@@ -96,6 +96,7 @@ const aiController = async (req, res) => {
       data: {
         // Execution metadata
         executionId: `exec_${Date.now()}`,
+        conflictId: `conflict_${Math.random().toString(36).substr(2, 9)}`,
         source: "z-ai-glm",
         processingTime: Date.now() - startTime,
         timestamp: new Date().toISOString(),
