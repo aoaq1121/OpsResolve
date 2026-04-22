@@ -114,6 +114,28 @@ app.get('/api/decisions', async (req, res) => {
   }
 });
 
+// ========== REVIEW ENDPOINTS ==========
+
+// POST - Save a review (called by Person 5)
+app.post('/api/reviews', async (req, res) => {
+  try {
+    const review = await stateManager.saveReview(req.body);
+    res.status(201).json(review);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET - All reviews
+app.get('/api/reviews', async (req, res) => {
+  try {
+    const reviews = await stateManager.getAllReviews();
+    res.json(reviews);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ========== STATISTICS ENDPOINT ==========
 
 app.get('/api/statistics', async (req, res) => {
