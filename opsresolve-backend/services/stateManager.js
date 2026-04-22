@@ -1,9 +1,10 @@
+
 const { db } = require('../config/firebase');
 
 class StateManager {
-  
+
   // ========== 1. RECORD MANAGEMENT ==========
-  
+
   async saveRecord(recordData) {
     try {
       const record = {
@@ -12,28 +13,25 @@ class StateManager {
         timestamp: new Date().toISOString(),
         status: recordData.status || 'pending'  // pending, notified, scheduled, accepted, overridden
       };
-      
-      const docRef = await db.collection('records').add(record);
+      await db.collection('records').add(record);
       console.log('✅ Record saved:', record.id);
-      return { id: docRef.id, ...record };
+      return record;
     } catch (error) {
       console.error('❌ Error saving record:', error);
       throw error;
     }
   }
-  
+
   async getAllRecords() {
     try {
-      const snapshot = await db.collection('records')
-        .orderBy('timestamp', 'desc')
-        .get();
-      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const snapshot = await db.collection('records').get();
+      return snapshot.docs.map(doc => doc.data());
     } catch (error) {
       console.error('❌ Error getting records:', error);
       throw error;
     }
   }
-  
+
   async updateRecordStatus(recordId, newStatus) {
     try {
       await db.collection('records').doc(recordId).update({
