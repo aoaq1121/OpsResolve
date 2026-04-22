@@ -1,5 +1,5 @@
 // controllers/aiController.js
-const { processRecordWorkflow } = require("../services/workflowEngine");
+const { runAgentLoop } = require("../services/runAgentLoop");
 const mockRecords = require("../data/mockRecords");
 
 function detectConflict(record) {
@@ -36,7 +36,7 @@ const aiController = async (req, res) => {
     }
 
     const conflictMatch = detectConflict(record);
-    const result = processRecordWorkflow(record, conflictMatch);
+    const result = await runAgentLoop(record, conflictMatch);
 
     return res.status(200).json({
       success: true,
