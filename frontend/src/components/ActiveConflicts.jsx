@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import mockConflicts from "../data/mockConflicts";
+import { useState, useEffect, useMemo } from "react";
+import { fetchConflicts } from "../services/aiService";
 import ConflictPopup from "./ConflictPopup";
 
 const severityOrder = { High: 0, Medium: 1, Low: 2 };
