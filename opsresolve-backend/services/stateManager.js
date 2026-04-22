@@ -203,13 +203,55 @@ class StateManager {
     }
   }
   
-  // ========== 4. STATISTICS (For dashboard) ==========
+  // ========== 4. REVIEW MANAGEMENT (For Person 5) ==========
+  
+  async saveReview(reviewData) {
+    try {
+      const review = {
+        ...reviewData,
+        id: `review_${Date.now()}`,
+        timestamp: new Date().toISOString()
+      };
+      
+      const docRef = await db.collection('reviews').add(review);
+      
+      // If review approves, mark decision as implemented
+      if (reviewData.decision_id && reviewData.approved) {
+        await db.collection('decisions').doc(reviewData.decision_id).update({
+          status: 'implemented',
+          implemented_at: new Date().toISOString()
+        });
+      }
+      
+      console.log('✅ Review saved:', review.id);
+      return { id: docRef.id, ...review };
+    } catch (error) {
+      console.error('❌ Error saving review:', error);
+      throw error;
+    }
+  }
+  
+  async getAllReviews() {
+    try {
+      const snapshot = await db.collection('reviews')
+        .orderBy('timestamp', 'desc')
+        .limit(50)
+        .get();
+      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } catch (error) {
+      console.error('❌ Error getting reviews:', error);
+      throw error;
+    }
+  }
+  
+  // ========== 5. STATISTICS (For dashboard) ==========
   
   async getStatistics() {
     try {
       const recordsSnapshot = await db.collection('records').get();
       const conflictsSnapshot = await db.collection('conflicts').get();
       const decisionsSnapshot = await db.collection('decisions').get();
+      const reviewsSnapshot = await db.collection('reviews').get();
       
       const activeConflicts = await this.getAllActiveConflicts();
       const recurringConflicts = await this.getRecurringConflicts(2);
@@ -218,6 +260,7 @@ class StateManager {
         totalRecords: recordsSnapshot.size,
         totalConflicts: conflictsSnapshot.size,
         totalDecisions: decisionsSnapshot.size,
+        totalReviews: reviewsSnapshot.size,
         activeConflicts: activeConflicts.length,
         recurringConflicts: recurringConflicts.length,
         highSeverityConflicts: activeConflicts.filter(c => c.severity === 'high').length
