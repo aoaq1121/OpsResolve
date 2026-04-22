@@ -40,6 +40,35 @@ export function NewRecord({ onViewConflicts, department }) {
     setLoading(true);
     setAiResult(null);
     setDetectedConflict(null);
+// ── FIREBASE SUBMISSION LOGIC ──────────────────────────────────────────────
+  // This defines the missing submitRecord function and saves to the cloud
+  async function submitRecord(recordData) {
+    try {
+      // 'db' and 'collection' are already imported at the top of your file
+      const docRef = await addDoc(collection(db, "conflicts"), {
+        ...recordData,
+        status: "pending", // Default status for Manager review
+        createdAt: new Date().toISOString(),
+      });
+      
+      console.log("Document written with ID: ", docRef.id);
+      
+      // For your hackathon demo, we return a "mock" AI result 
+      // so the rest of your existing logic (modals, etc.) keeps working.
+      return {
+        data: {
+          status: "CONFLICT_DETECTED",
+          conflictId: docRef.id,
+          conflict: { conflict: true, reason: "Resource overlap detected with Line B" },
+          impact: { severity: "HIGH", affected_departments: [department, "Logistics"] },
+          decision: { recommendation: "Move maintenance to Night Shift" }
+        }
+      };
+    } catch (e) {
+      console.error("Error adding document: ", e);
+      throw e;
+    }
+  }
 
     try {
       // Send a clean payload to the backend
