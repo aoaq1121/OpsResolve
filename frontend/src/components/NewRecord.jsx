@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { submitRecord } from "../services/aiService";
-import { db, collection, addDoc } from "../firebase"; //
-import mockConflicts from "../data/mockConflicts";
+import { db, collection, addDoc } from "../firebase";
 import { ConflictDetectedModal } from "./ConflictDetectedModal";
 
 // ── New Record tab ────────────────────────────────────────────────────────────
