@@ -3,13 +3,33 @@ console.log("API KEY:", process.env.ILMU_API_KEY);
 
 const express = require("express");
 const cors = require("cors");
-const { aiController } = require("./controllers/aiController");
+const multer = require("multer");
+const { aiController, analyzeInputController } = require("./controllers/aiController");
 
 const app = express();
 
-app.use(cors());
-app.use(express.json());
+// Configure multer for file uploads (max 10MB per file, max 5 files)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = ["application/pdf", "image/png", "image/jpeg", "image/jpg"];
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Invalid file type"));
+    }
+  },
+});
 
+app.use(cors());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb" }));
+
+// AI input analysis endpoint with file upload
+app.post("/api/analyze-input", upload.any(), analyzeInputController);
+
+// Main record submission endpoint
 app.post("/api/submit-record", aiController);
 
 app.get("/api/get-conflicts", (req, res) => {

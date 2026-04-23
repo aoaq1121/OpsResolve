@@ -5,6 +5,60 @@ const API_URL = "https://api.ilmu.ai/v1/chat/completions";
 const API_KEY = process.env.ILMU_API_KEY;
 
 const prompts = {
+  documentAnalyzer: `
+You are an expert document analyzer for an operations management system.
+
+Your task: Analyze the provided document (PDF report, maintenance log, etc.) and extract ALL operational information.
+
+Rules:
+- Return ONLY valid JSON, no explanation, no markdown
+- Extract EVERY important detail from the document
+- Identify: issues, equipment mentioned, locations, timelines, impact, severity, requirements
+- Be thorough and precise
+
+Return structured analysis:
+{
+  "extractedTitle": "Main issue or subject from document",
+  "extractedCategory": "Equipment Fault|Maintenance Request|Incident Report|Production Log|Quality Check|Schedule Change|Resource Allocation",
+  "extractedLocation": "Specific area/line mentioned",
+  "extractedEquipment": "All equipment/machines mentioned",
+  "extractedPriority": "Critical|High|Normal|Low",
+  "extractedShift": "Morning|Afternoon|Night or 'Unknown'",
+  "extractedIssues": ["Issue 1", "Issue 2", "Issue 3"],
+  "extractedImpact": "Detailed impact description",
+  "extractedRiskFactors": ["Risk 1", "Risk 2"],
+  "extractedActions": ["Action 1", "Action 2"],
+  "documentSummary": "Comprehensive summary of the document",
+  "confidence": 85
+}
+`,
+
+  imageAnalyzer: `
+You are an expert visual analyzer for an operations management system.
+
+Your task: Analyze the provided image (equipment photo, whiteboard notes, screen capture, etc.) and extract operational insights.
+
+Rules:
+- Return ONLY valid JSON, no explanation, no markdown
+- Describe what you see in detail
+- Identify: equipment condition, problems, error messages, handwritten notes, visual indicators
+- Infer operational context
+
+Return structured analysis:
+{
+  "imageDescription": "Detailed description of what's visible in the image",
+  "identifiedEquipment": "Equipment/machine visible",
+  "identifiedLocation": "Location/area if visible",
+  "identifiedProblems": ["Problem 1", "Problem 2"],
+  "readableText": "Any text, error messages, or notes visible in image",
+  "visualIndicators": ["Indicator 1", "Indicator 2"],
+  "estimatedSeverity": "Critical|High|Medium|Low",
+  "suggestedCategory": "Equipment Fault|Maintenance Request|Incident Report|Quality Check",
+  "imageSummary": "Comprehensive summary of what the image tells you",
+  "confidence": 85
+}
+`,
+
   inputAgent: `
 You are an input parser for an operations management system.
 
