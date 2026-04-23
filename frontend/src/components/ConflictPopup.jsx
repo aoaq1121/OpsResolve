@@ -37,7 +37,7 @@ function Toast({ message, onDone }) {
   );
 }
 
-export default function ConflictPopup({ conflict, role, onClose, onAccept, onDecisionComplete }) {
+export default function ConflictPopup({ conflict, role, onClose, onAccept, onOverride }) {
   const [toast, setToast] = useState(null);
   const [showOverride, setShowOverride] = useState(false);
   const [finalNote, setFinalNote] = useState("");
