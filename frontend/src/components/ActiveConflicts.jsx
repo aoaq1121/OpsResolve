@@ -1,5 +1,4 @@
-import { useState, useMemo } from "react";
-import mockConflicts from "../data/mockConflicts";
+import { useState, useMemo, useEffect } from "react";
 import ConflictPopup from "./ConflictPopup";
 
 const severityOrder = { High: 0, Medium: 1, Low: 2 };
@@ -28,38 +27,93 @@ function StatusDot({ type }) {
   );
 }
 
-export default function ActiveConflicts({ role }) {
-  const [conflicts, setConflicts] = useState(mockConflicts);
-  const [selected, setSelected]   = useState(null);
-  const [filter, setFilter]       = useState("All");
-  const [search, setSearch]       = useState("");
+export default function ActiveConflicts({ role, department }) {
+  const [conflicts, setConflicts]       = useState([]);
+  const [loading, setLoading]           = useState(true);
+  const [error, setError]               = useState(null);
+  const [selected, setSelected]         = useState(null);
+  const [filter, setFilter]             = useState("All");
+  const [search, setSearch]             = useState("");
+  const [showResolved, setShowResolved] = useState(false);
 
   const isReadOnly = role === "data_entry";
   const filters    = ["All", "High", "Medium", "Low"];
 
+  useEffect(() => {
+    fetchConflicts();
+    const interval = setInterval(fetchConflicts, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  async function fetchConflicts() {
+    try {
+      const response = await fetch("http://localhost:3001/api/conflicts");
+      const data = await response.json();
+
+      const raw = Array.isArray(data) ? data : data.data || [];
+
+      const mapped = raw.map((c) => ({
+        conflictId: c.id || c.conflictId,
+        conflictReason: c.conflictReason || c.issue_summary || c.title || "Conflict detected",
+        severity: c.severity ? c.severity.charAt(0).toUpperCase() + c.severity.slice(1) : "Medium",
+        departmentsInvolved: c.departmentsInvolved ||
+          [c.department_a, c.department_b].filter(Boolean) ||
+          [c.department].filter(Boolean),
+        status: c.status === "active" ? "open" : c.status,
+        statusType: c.status === "active" ? "urgent" :
+                    c.status === "overridden" || c.status === "resolved" ? "resolved" : "pending",
+        confidence: c.confidence
+          ? (c.confidence <= 1 ? Math.round(c.confidence * 100) : c.confidence)
+          : 0,
+        reportedAt: c.first_detected ? new Date(c.first_detected).toLocaleString() : "—",
+        recordA: c.records_involved?.[0] || c.recordA || "—",
+        recordB: c.records_involved?.[1] || c.recordB || "—",
+        aiSummary: {
+          recommendation: c.ai_recommendation || c.recommendation || c.aiSummary?.recommendation || "—",
+          conflictReason: c.issue_summary || c.conflictReason || c.aiSummary || "—",
+        },
+        decision: c.finalSolution ? { managerAction: c.resolutionType, finalNote: c.finalSolution } : null,
+      }));
+
+      setConflicts(mapped);
+      setLoading(false);
+    } catch (err) {
+      console.error("Failed to fetch conflicts:", err);
+      setError("Could not connect to server");
+      setLoading(false);
+    }
+  }
+
   const openCount = useMemo(
-    () => conflicts.filter((c) => c.status !== "resolved").length,
+    () => conflicts.filter((c) => c.status !== "resolved" && c.status !== "overridden").length,
     [conflicts]
   );
 
   const filtered = useMemo(() => {
     return conflicts
+      .filter((c) => showResolved ? true : c.status !== "resolved" && c.status !== "overridden")
+      // Department filter — managers see all, others see only their department's conflicts
+      .filter((c) =>
+        role === "manager"
+          ? true
+          : (c.departmentsInvolved || []).includes(department)
+      )
       .filter((c) => filter === "All" || c.severity === filter)
       .filter((c) =>
         search === "" ||
-        c.conflictReason.toLowerCase().includes(search.toLowerCase()) ||
-        c.departmentsInvolved.some((d) => d.toLowerCase().includes(search.toLowerCase())) ||
-        c.conflictId.toLowerCase().includes(search.toLowerCase())
+        (c.conflictReason && c.conflictReason.toLowerCase().includes(search.toLowerCase())) ||
+        (c.departmentsInvolved && c.departmentsInvolved.some((d) => d.toLowerCase().includes(search.toLowerCase()))) ||
+        (c.conflictId && c.conflictId.toLowerCase().includes(search.toLowerCase()))
       )
-      .sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
-  }, [conflicts, filter, search]);
+      .sort((a, b) => (severityOrder[a.severity] ?? 2) - (severityOrder[b.severity] ?? 2));
+  }, [conflicts, filter, search, showResolved, role, department]);
 
   const counts = useMemo(() => ({
-    All:    conflicts.length,
-    High:   conflicts.filter((c) => c.severity === "High").length,
-    Medium: conflicts.filter((c) => c.severity === "Medium").length,
-    Low:    conflicts.filter((c) => c.severity === "Low").length,
-  }), [conflicts]);
+    All:    filtered.length,
+    High:   filtered.filter((c) => c.severity === "High").length,
+    Medium: filtered.filter((c) => c.severity === "Medium").length,
+    Low:    filtered.filter((c) => c.severity === "Low").length,
+  }), [filtered]);
 
   function handleResolve(conflictId, decision) {
     setConflicts((prev) =>
@@ -73,15 +127,37 @@ export default function ActiveConflicts({ role }) {
 
   return (
     <div className="tab-content">
-      {/* Header */}
       <div className="section-header">
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <h2 className="section-title">Active Conflicts</h2>
           {openCount > 0 && <span className="conflict-count">{openCount} open</span>}
         </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={() => setShowResolved(!showResolved)}
+            style={{
+              fontSize: 13, fontWeight: 600,
+              color: showResolved ? "#2563eb" : "#64748b",
+              background: showResolved ? "#eff6ff" : "none",
+              border: "1.5px solid #e2e8f0",
+              borderRadius: 8, padding: "6px 14px", cursor: "pointer",
+            }}
+          >
+            {showResolved ? "Hide resolved" : "Show resolved"}
+          </button>
+          <button
+            onClick={fetchConflicts}
+            style={{
+              fontSize: 13, fontWeight: 600, color: "#64748b",
+              background: "none", border: "1.5px solid #e2e8f0",
+              borderRadius: 8, padding: "6px 14px", cursor: "pointer",
+            }}
+          >
+            Refresh
+          </button>
+        </div>
       </div>
 
-      {/* Read-only banner */}
       {isReadOnly && (
         <div className="readonly-banner">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
@@ -92,13 +168,11 @@ export default function ActiveConflicts({ role }) {
         </div>
       )}
 
-      {/* Search + filter row */}
       <div style={{ display: "flex", gap: 10, marginBottom: 18, alignItems: "center", flexWrap: "wrap" }}>
         <div style={{
           display: "flex", alignItems: "center", gap: 9,
           background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10,
           padding: "0 14px", flex: 1, minWidth: 180, height: 40,
-          transition: "border-color 0.15s",
         }}>
           <svg width="15" height="15" viewBox="0 0 15 15" fill="none" style={{ flexShrink: 0 }}>
             <circle cx="6.5" cy="6.5" r="4.5" stroke="#94a3b8" strokeWidth="1.4"/>
@@ -132,37 +206,40 @@ export default function ActiveConflicts({ role }) {
         </div>
       </div>
 
-      {/* Cards */}
-      {filtered.length === 0 ? (
-        <div className="empty-state">
-          <svg width="40" height="40" viewBox="0 0 40 40" fill="none" style={{ margin: "0 auto 12px", display: "block" }}>
-            <circle cx="20" cy="20" r="18" stroke="#e2e8f0" strokeWidth="1.5"/>
-            <path d="M14 20h12M20 14v12" stroke="#e2e8f0" strokeWidth="1.5" strokeLinecap="round"/>
-          </svg>
-          No conflicts match your filter.
+      {loading ? (
+        <div style={{ textAlign: "center", padding: "3rem", color: "#94a3b8" }}>
+          <div style={{ width: 24, height: 24, border: "2.5px solid #e2e8f0", borderTop: "2.5px solid #2563eb", borderRadius: "50%", animation: "spin 0.7s linear infinite", margin: "0 auto 12px" }} />
+          Loading conflicts...
         </div>
+      ) : error ? (
+        <div style={{ textAlign: "center", padding: "3rem", color: "#ef4444", fontSize: 14 }}>
+          {error} — <button onClick={fetchConflicts} style={{ color: "#2563eb", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>retry</button>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="empty-state">No conflicts match your filter.</div>
       ) : (
         <div className="conflict-list">
           {filtered.map((conflict, i) => (
             <div
-              key={conflict.conflictId}
-              className={`conflict-card severity-${conflict.severity.toLowerCase()}`}
+              key={conflict.conflictId || i}
+              className={`conflict-card severity-${(conflict.severity || "low").toLowerCase()}`}
               onClick={() => setSelected(conflict)}
-              style={{ animationDelay: `${i * 55}ms`, opacity: conflict.status === "resolved" ? 0.55 : 1 }}
+              style={{ animationDelay: `${i * 55}ms`, opacity: conflict.status === "resolved" || conflict.status === "overridden" ? 0.55 : 1 }}
             >
               <div className="conflict-card-header">
-                <SeverityBadge severity={conflict.severity} />
+                <SeverityBadge severity={conflict.severity || "Low"} />
                 <span className="conflict-title">{conflict.conflictReason}</span>
-                {conflict.status === "resolved" && (
+                {(conflict.status === "resolved" || conflict.status === "overridden") && (
                   <span style={{
                     marginLeft: "auto", fontSize: 12, padding: "3px 10px", borderRadius: 100,
                     background: "#f0fdf4", color: "#16a34a", fontWeight: 700,
                     border: "1px solid #86efac", flexShrink: 0,
-                  }}>Resolved</span>
+                  }}>
+                    {conflict.status === "overridden" ? "Overridden" : "Resolved"}
+                  </span>
                 )}
               </div>
 
-              {/* Record IDs */}
               <div style={{ fontSize: 12, color: "#94a3b8", margin: "5px 0 8px", display: "flex", gap: 8, alignItems: "center" }}>
                 <span style={{ background: "#f1f5f9", padding: "2px 8px", borderRadius: 5, fontWeight: 600, color: "#475569" }}>{conflict.recordA}</span>
                 <span style={{ color: "#cbd5e1" }}>↔</span>
@@ -172,27 +249,26 @@ export default function ActiveConflicts({ role }) {
               </div>
 
               <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
-                {conflict.departmentsInvolved.map((d) => (
+                {(conflict.departmentsInvolved || []).map((d) => (
                   <span key={d} className="dept-tag">{d}</span>
                 ))}
               </div>
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <StatusDot type={conflict.statusType} />
+                <StatusDot type={conflict.statusType || "pending"} />
                 <span style={{ fontSize: 12, color: "#94a3b8" }}>{conflict.reportedAt}</span>
               </div>
 
-              {/* Confidence bar */}
               <div style={{ marginTop: 12, height: 4, background: "#f1f5f9", borderRadius: 2, overflow: "hidden" }}>
                 <div style={{
                   height: "100%",
-                  width: `${conflict.confidence}%`,
-                  background: conflict.confidence >= 80 ? "#22c55e" : conflict.confidence >= 60 ? "#f59e0b" : "#ef4444",
+                  width: `${conflict.confidence || 0}%`,
+                  background: (conflict.confidence || 0) >= 80 ? "#22c55e" : (conflict.confidence || 0) >= 60 ? "#f59e0b" : "#ef4444",
                   borderRadius: 2, transition: "width 0.5s ease",
                 }} />
               </div>
               <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4, textAlign: "right", fontWeight: 500 }}>
-                AI confidence {conflict.confidence}%
+                AI confidence {conflict.confidence || 0}%
               </div>
             </div>
           ))}

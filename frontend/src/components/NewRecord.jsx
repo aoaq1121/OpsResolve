@@ -1,12 +1,11 @@
 import { useState } from "react";
 import { submitRecord } from "../services/aiService";
-import mockConflicts from "../data/mockConflicts";
 import { ConflictDetectedModal } from "./ConflictDetectedModal";
 
 // ── New Record tab ────────────────────────────────────────────────────────────
 // This is the input form page.
 // It collects the user's data, sends it to the backend, then shows the AI result.
-export function NewRecord({ onViewConflicts, department }) {
+export function NewRecord({ onViewConflicts, department, openConflictCount = 0 }) {
   const [form, setForm] = useState({
     title: "",
     category: "",
@@ -21,8 +20,8 @@ export function NewRecord({ onViewConflicts, department }) {
   });
 
   const [loading, setLoading] = useState(false);
-  const [aiResult, setAiResult] = useState(null);
   const [detectedConflict, setDetectedConflict] = useState(null);
+  const [recordAdded, setRecordAdded] = useState(false);
 
   // Updates one field in the form
   function handleChange(field, val) {
@@ -36,9 +35,10 @@ export function NewRecord({ onViewConflicts, department }) {
       alert("Please fill in Title, Category and Description.");
       return;
     }
+    
+    console.log("Submitting:", { ...form, department });
 
     setLoading(true);
-    setAiResult(null);
     setDetectedConflict(null);
 
     try {
@@ -47,9 +47,6 @@ export function NewRecord({ onViewConflicts, department }) {
         ...form,
         department, // comes from login screen
       });
-
-      // Save the full backend response so we can display it
-      setAiResult(result);
 
       // Try to detect whether the backend says there is a conflict
       const data = result?.data ?? result;
@@ -61,25 +58,19 @@ export function NewRecord({ onViewConflicts, department }) {
 
       // If the AI says there is a conflict, show the modal
       if (conflictDetected) {
-        // Build a display object for the modal.
-        // This keeps the UI working even if backend response format changes a little.
-        setDetectedConflict({
-          conflictId: data?.conflictId || `AI-${Date.now()}`,
-          severity: data?.impact?.severity || "MEDIUM",
-          conflictReason:
-            data?.conflict?.reason ||
-            data?.message ||
-            "AI detected a possible scheduling/resource conflict.",
-          departmentsInvolved: data?.impact?.affected_departments || [department].filter(Boolean),
-          recommendation:
-            data?.decision?.recommendation ||
-            data?.recommendation ||
-            "Review the record and adjust the schedule or resource allocation.",
-        });
-      }
+  setDetectedConflict({
+    conflictId: data?.context?.existingRecordId || `CON-${Date.now()}`,
+    severity: data?.severity || "Medium",
+    conflictReason: data?.aiSummary?.conflictReason || "Conflict detected with an existing record.",
+    departmentsInvolved: [department].filter(Boolean),
+    recommendation: data?.aiSummary?.recommendation || "Review and coordinate with the affected department.",
+  });
+} else {
+  setRecordAdded(true);
+}
     } catch (err) {
-      console.error(err);
-      alert("AI processing failed");
+  console.error(err);
+  setRecordAdded(true);
     } finally {
       setLoading(false);
     }
@@ -101,9 +92,10 @@ export function NewRecord({ onViewConflicts, department }) {
     });
     setAiResult(null);
     setDetectedConflict(null);
+    setRecordAdded(false); 
   }
 
-  const openCount = mockConflicts.filter((c) => c.status !== "resolved").length;
+  const openCount = 0; // will be updated when connected to real data
 
   return (
     <div style={{ padding: "1.75rem", width: "100%" }}>
@@ -134,21 +126,21 @@ export function NewRecord({ onViewConflicts, department }) {
             />
           </svg>
           View Active Conflicts
-          {openCount > 0 && (
-            <span
-              style={{
-                marginLeft: 7,
-                background: "#ef4444",
-                color: "#fff",
-                fontSize: 10,
-                fontWeight: 700,
-                padding: "1px 7px",
-                borderRadius: 100,
-              }}
-            >
-              {openCount}
-            </span>
-          )}
+          {openConflictCount > 0 && (
+  <span
+    style={{
+      marginLeft: 7,
+      background: "#ef4444",
+      color: "#fff",
+      fontSize: 10,
+      fontWeight: 700,
+      padding: "1px 7px",
+      borderRadius: 100,
+    }}
+  >
+    {openConflictCount}
+  </span>
+)}
         </button>
       </div>
 
@@ -304,24 +296,33 @@ export function NewRecord({ onViewConflicts, department }) {
             {loading ? "Analyzing..." : "Submit Record"}
           </button>
         </div>
-
-        {/* AI result display */}
-        {aiResult && (
-          <div
-            style={{
-              marginTop: 20,
-              padding: 16,
-              background: "#f8fafc",
-              borderRadius: 12,
-              border: "1px solid #cbd5e1",
-            }}
-          >
-            <h4 style={{ marginTop: 0, marginBottom: 10 }}>AI Result</h4>
-            <pre style={{ fontSize: 12, margin: 0, whiteSpace: "pre-wrap" }}>
-              {JSON.stringify(aiResult.data ?? aiResult, null, 2)}
-            </pre>
-          </div>
-        )}
+          {recordAdded && (
+    <div style={{
+      marginTop: 16,
+      background: "#f0fdf4",
+      border: "1.5px solid #86efac",
+      borderRadius: 10,
+      padding: "14px 16px",
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      animation: "fadeUp 0.3s ease",
+    }}>
+      <div style={{
+        width: 32, height: 32, borderRadius: "50%",
+        background: "#dcfce7", border: "1.5px solid #86efac",
+        display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+      }}>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M3 8l3.5 3.5 7-7" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </div>
+      <div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "#16a34a" }}>Record added successfully</div>
+        <div style={{ fontSize: 13, color: "#166534", marginTop: 2 }}>No conflicts detected with existing records.</div>
+      </div>
+    </div>
+  )}    
       </div>
 
       {detectedConflict && (

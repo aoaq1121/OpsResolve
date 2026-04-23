@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 // ── Review & Approval ──────────────────────────────────────────────────────────
 import { useState, useEffect } from "react";
 
@@ -100,11 +101,16 @@ export function ReviewApproval() {
     );
   }
 
+=======
+// ── Review & Approval placeholder ───────────────────────────────────────────────
+export function ReviewApproval() {
+>>>>>>> main
   return (
     <div style={{ padding: "1.75rem" }}>
       <h2 className="section-title" style={{ marginBottom: "1rem" }}>
         Review & Approval
       </h2>
+<<<<<<< HEAD
 
       {pendingDecisions.length === 0 ? (
         <div style={{ textAlign: "center", color: "#94a3b8", padding: "2rem" }}>
@@ -251,3 +257,11 @@ export function ReviewApproval() {
     </div>
   );
 }
+=======
+      <p style={{ color: "#94a3b8", fontSize: 14 }}>
+        Review & Approval — implemented by team member (Person 5).
+      </p>
+    </div>
+  );
+}
+>>>>>>> main

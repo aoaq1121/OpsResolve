@@ -1,309 +1,190 @@
-
 const { db } = require('../config/firebase');
 
 class StateManager {
 
-  // ========== 1. RECORD MANAGEMENT ==========
+  // ─── Records ────────────────────────────────────────────────────────────────
 
   async saveRecord(recordData) {
-    try {
-      const record = {
-        ...recordData,
-        id: `record_${Date.now()}`,
-        timestamp: new Date().toISOString(),
-        status: recordData.status || 'pending'  // pending, notified, scheduled, accepted, overridden
-      };
-      await db.collection('records').add(record);
-      console.log('✅ Record saved:', record.id);
-      return record;
-    } catch (error) {
-      console.error('❌ Error saving record:', error);
-      throw error;
-    }
+    const record = {
+      ...recordData,
+      id: `record_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      status: recordData.status || 'pending',
+    };
+    const docRef = await db.collection('records').add(record);
+    return { id: docRef.id, ...record };
   }
 
   async getAllRecords() {
-    try {
-      const snapshot = await db.collection('records').get();
-      return snapshot.docs.map(doc => doc.data());
-    } catch (error) {
-      console.error('❌ Error getting records:', error);
-      throw error;
-    }
+    const snapshot = await db.collection('records').get();
+    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
   }
 
-  async updateRecordStatus(recordId, newStatus) {
-    try {
-      await db.collection('records').doc(recordId).update({
-        status: newStatus,
-        updatedAt: new Date().toISOString()
-      });
-      console.log('✅ Record status updated:', recordId, '→', newStatus);
-      return true;
-    } catch (error) {
-      console.error('❌ Error updating record:', error);
-      throw error;
-    }
+  async updateRecordStatus(id, status) {
+    const snapshot = await db.collection('records').where('id', '==', id).get();
+    if (snapshot.empty) throw new Error('Record not found');
+    await snapshot.docs[0].ref.update({ status });
   }
-  
-  // ========== 2. CONFLICT MANAGEMENT (WITH RECURRENCE TRACKING) ==========
-  
+
+  // ─── Conflicts ──────────────────────────────────────────────────────────────
+
   async saveConflict(conflictData) {
-    try {
-      // Check if similar conflict already exists
-      const existingConflict = await this.findSimilarConflict(
-        conflictData.department_a,
-        conflictData.department_b,
-        conflictData.conflict_type
-      );
-      
-      let count = 1;
-      if (existingConflict && existingConflict.status === 'active') {
-        count = existingConflict.count + 1;
-        console.log(`⚠️ Recurring conflict! This is #${count} time`);
-      }
-      
-      const conflict = {
-        ...conflictData,
-        id: `conflict_${Date.now()}`,
-        first_detected: existingConflict?.first_detected || new Date().toISOString(),
+    // Check for existing conflict between same records
+    const existing = await db.collection('conflicts')
+      .where('recordA', '==', conflictData.recordA)
+      .where('recordB', '==', conflictData.recordB)
+      .get();
+
+    let count = 1;
+    if (!existing.empty) {
+      count = (existing.docs[0].data().count || 1) + 1;
+      await existing.docs[0].ref.update({
+        count,
         last_detected: new Date().toISOString(),
-        count: count,  // ← KEY FEATURE: recurring conflict counter
-        status: 'active'  // active or resolved
-      };
-      
-      const docRef = await db.collection('conflicts').add(conflict);
-      console.log('✅ Conflict saved:', conflict.id, '| Count:', count);
-      return { id: docRef.id, ...conflict };
-    } catch (error) {
-      console.error('❌ Error saving conflict:', error);
-      throw error;
-    }
-  }
-  
-  async findSimilarConflict(deptA, deptB, conflictType) {
-    try {
-      const snapshot = await db.collection('conflicts')
-        .where('status', '==', 'active')
-        .limit(5)
-        .get();
-      
-      for (const doc of snapshot.docs) {
-        const data = doc.data();
-        if (data.conflict_type === conflictType &&
-            ((data.department_a === deptA && data.department_b === deptB) ||
-             (data.department_a === deptB && data.department_b === deptA))) {
-          return { id: doc.id, ...data };
-        }
-      }
-      return null;
-    } catch (error) {
-      console.error('Error finding similar conflict:', error);
-      return null;
-    }
-  }
-  
-  async getAllActiveConflicts() {
-    try {
-      const snapshot = await db.collection('conflicts')
-        .where('status', '==', 'active')
-        .orderBy('count', 'desc')  // Show recurring conflicts first
-        .orderBy('severity', 'desc')
-        .get();
-      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    } catch (error) {
-      console.error('❌ Error getting conflicts:', error);
-      throw error;
-    }
-  }
-  
-  async getConflictById(conflictId) {
-    try {
-      const doc = await db.collection('conflicts').doc(conflictId).get();
-      if (!doc.exists) return null;
-      return { id: doc.id, ...doc.data() };
-    } catch (error) {
-      console.error('❌ Error getting conflict:', error);
-      throw error;
-    }
-  }
-  
-  async resolveConflict(conflictId, resolution) {
-    try {
-      await db.collection('conflicts').doc(conflictId).update({
-        status: 'resolved',
-        resolution: resolution,
-        resolved_at: new Date().toISOString()
+        status: conflictData.status || 'pending',
       });
-      console.log('✅ Conflict resolved:', conflictId);
-      return true;
-    } catch (error) {
-      console.error('❌ Error resolving conflict:', error);
-      throw error;
+      return { id: existing.docs[0].id, ...existing.docs[0].data(), count };
     }
+
+    const conflict = {
+      ...conflictData,
+      conflictId: `conflict_${Date.now()}`,
+      count: 1,
+      first_detected: new Date().toISOString(),
+      last_detected: new Date().toISOString(),
+      status: conflictData.status || 'pending',
+      statusType: 'urgent',
+    };
+    const docRef = await db.collection('conflicts').add(conflict);
+    return { id: docRef.id, ...conflict };
   }
-  
-  // SPECIAL: Get conflicts that happened multiple times
+
+  async getAllActiveConflicts() {
+    const snapshot = await db.collection('conflicts')
+      .where('status', '!=', 'resolved')
+      .get();
+    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  }
+
+  async getConflictById(id) {
+    const snapshot = await db.collection('conflicts').where('conflictId', '==', id).get();
+    if (snapshot.empty) return null;
+    return { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
+  }
+
   async getRecurringConflicts(minCount = 2) {
-    try {
-      const snapshot = await db.collection('conflicts')
-        .where('count', '>=', minCount)
-        .where('status', '==', 'active')
-        .orderBy('count', 'desc')
-        .get();
-      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    } catch (error) {
-      console.error('❌ Error getting recurring conflicts:', error);
-      throw error;
-    }
+    const snapshot = await db.collection('conflicts')
+      .where('count', '>=', minCount)
+      .get();
+    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
   }
-  
-  // ========== 3. DECISION MANAGEMENT ==========
-  
+
+  async updateConflictStatus(conflictId, status) {
+    const snapshot = await db.collection('conflicts').where('conflictId', '==', conflictId).get();
+    if (snapshot.empty) throw new Error('Conflict not found');
+    await snapshot.docs[0].ref.update({ status });
+  }
+
+  // ─── Decisions ──────────────────────────────────────────────────────────────
+
   async saveDecision(decisionData) {
-    try {
-      const decision = {
-        ...decisionData,
-        id: `decision_${Date.now()}`,
-        timestamp: new Date().toISOString()
-      };
-      
-      const docRef = await db.collection('decisions').add(decision);
-      
-      // Update record status if needed
-      if (decisionData.record_id) {
-        await this.updateRecordStatus(decisionData.record_id, decisionData.status);
-      }
-      
-      // Resolve conflict if decision accepts it
-      if (decisionData.conflict_id && decisionData.decision_type === 'accept') {
-        await this.resolveConflict(decisionData.conflict_id, decisionData.action_taken);
-      }
-      
-      console.log('✅ Decision saved:', decision.id);
-      return { id: docRef.id, ...decision };
-    } catch (error) {
-      console.error('❌ Error saving decision:', error);
-      throw error;
+    const decision = {
+      ...decisionData,
+      decisionId: `decision_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+    };
+    const docRef = await db.collection('decisions').add(decision);
+
+    // Update conflict status after decision
+    if (decisionData.conflictId) {
+      await this.updateConflictStatus(
+        decisionData.conflictId,
+        decisionData.managerAction === 'accepted' || decisionData.managerAction === 'overridden'
+          ? 'resolved'
+          : 'pending'
+      );
     }
+
+    return { id: docRef.id, ...decision };
   }
-  
+
   async getAllDecisions() {
-    try {
-      const snapshot = await db.collection('decisions')
-        .orderBy('timestamp', 'desc')
-        .limit(50)
-        .get();
-      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    } catch (error) {
-      console.error('❌ Error getting decisions:', error);
-      throw error;
-    }
+    const snapshot = await db.collection('decisions').orderBy('timestamp', 'desc').get();
+    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
   }
-  
-  // ========== 4. REVIEW MANAGEMENT (For Person 5) ==========
-  
+
+  // ─── Reviews ────────────────────────────────────────────────────────────────
+
   async saveReview(reviewData) {
-    try {
-      const review = {
-        ...reviewData,
-        id: `review_${Date.now()}`,
-        timestamp: new Date().toISOString()
-      };
-      
-      const docRef = await db.collection('reviews').add(review);
-      
-      // If review approves, mark decision as implemented
-      if (reviewData.decision_id && reviewData.approved) {
-        await db.collection('decisions').doc(reviewData.decision_id).update({
-          status: 'implemented',
-          implemented_at: new Date().toISOString()
-        });
-      }
-      
-      console.log('✅ Review saved:', review.id);
-      return { id: docRef.id, ...review };
-    } catch (error) {
-      console.error('❌ Error saving review:', error);
-      throw error;
-    }
+    const review = {
+      ...reviewData,
+      reviewId: `review_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+    };
+    const docRef = await db.collection('reviews').add(review);
+    return { id: docRef.id, ...review };
   }
-  
+
   async getAllReviews() {
-    try {
-      const snapshot = await db.collection('reviews')
-        .orderBy('timestamp', 'desc')
-        .limit(50)
-        .get();
-      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    } catch (error) {
-      console.error('❌ Error getting reviews:', error);
-      throw error;
-    }
+    const snapshot = await db.collection('reviews').get();
+    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
   }
-  
-  // ========== 5. STATISTICS (For dashboard) ==========
-  
+
+  // ─── Statistics ─────────────────────────────────────────────────────────────
+
   async getStatistics() {
-    try {
-      const recordsSnapshot = await db.collection('records').get();
-      const conflictsSnapshot = await db.collection('conflicts').get();
-      const decisionsSnapshot = await db.collection('decisions').get();
-      const reviewsSnapshot = await db.collection('reviews').get();
-      
-      const activeConflicts = await this.getAllActiveConflicts();
-      const recurringConflicts = await this.getRecurringConflicts(2);
-      
-      return {
-        totalRecords: recordsSnapshot.size,
-        totalConflicts: conflictsSnapshot.size,
-        totalDecisions: decisionsSnapshot.size,
-        totalReviews: reviewsSnapshot.size,
-        activeConflicts: activeConflicts.length,
-        recurringConflicts: recurringConflicts.length,
-        highSeverityConflicts: activeConflicts.filter(c => c.severity === 'high').length
-      };
-    } catch (error) {
-      console.error('❌ Error getting statistics:', error);
-      throw error;
-    }
+    const [records, conflicts, decisions] = await Promise.all([
+      db.collection('records').get(),
+      db.collection('conflicts').get(),
+      db.collection('decisions').get(),
+    ]);
+
+    const resolvedConflicts = conflicts.docs.filter(
+      (d) => d.data().status === 'resolved'
+    ).length;
+
+    const acceptedDecisions = decisions.docs.filter(
+      (d) => d.data().managerAction === 'accepted'
+    ).length;
+
+    const overriddenDecisions = decisions.docs.filter(
+      (d) => d.data().managerAction === 'overridden'
+    ).length;
+
+    return {
+      totalRecords: records.size,
+      totalConflicts: conflicts.size,
+      resolvedConflicts,
+      openConflicts: conflicts.size - resolvedConflicts,
+      totalDecisions: decisions.size,
+      acceptedDecisions,
+      overriddenDecisions,
+    };
   }
-  
-  // ========== 5. DEMO DATA (For testing) ==========
-  
+
+  // ─── Demo seed data ─────────────────────────────────────────────────────────
+
   async seedDemoData() {
-    console.log('🌱 Seeding demo data...');
-    
-    // Demo records
-    const record1 = await this.saveRecord({
-      title: "Production Line A - Friday Rush",
-      department: "Production",
-      notes: "Need to run Line A at full capacity Friday for urgent client order",
-      status: "pending",
-      submittedBy: "Production"
-    });
-    
-    const record2 = await this.saveRecord({
-      title: "Line A Scheduled Maintenance",
-      department: "Maintenance",
-      notes: "Mandatory 4-hour preventive maintenance for Line A on Friday",
-      status: "pending",
-      submittedBy: "Maintenance"
-    });
-    
-    // Demo conflict (with recurrence count)
-    await this.saveConflict({
-      conflict_type: "schedule_mismatch",
-      department_a: "Production",
-      department_b: "Maintenance",
-      records_involved: [record1.id, record2.id],
-      issue_summary: "Production needs Line A at full capacity, but Maintenance scheduled shutdown",
-      severity: "high",
-      confidence: 0.92,
-      ai_recommendation: "Reschedule maintenance to Saturday or run production with reduced load"
-    });
-    
-    console.log('✅ Demo data seeded!');
+    const demoConflict = {
+      conflictId: `conflict_demo_${Date.now()}`,
+      recordA: 'REC-001',
+      recordB: 'REC-002',
+      departmentsInvolved: ['Production', 'Maintenance'],
+      conflictReason: 'Machine M-07 is scheduled for maintenance during active production shift.',
+      severity: 'High',
+      status: 'pending',
+      statusType: 'urgent',
+      aiSummary: 'Production and Maintenance have overlapping resource requirements for Machine M-07 on the same shift.',
+      recommendation: 'Reschedule maintenance to off-peak shift or delay production run.',
+      confidence: 85,
+      count: 1,
+      first_detected: new Date().toISOString(),
+      last_detected: new Date().toISOString(),
+      reportedAt: 'Just now',
+    };
+
+    await db.collection('conflicts').add(demoConflict);
+    return { message: 'Demo data seeded' };
   }
 }
 
