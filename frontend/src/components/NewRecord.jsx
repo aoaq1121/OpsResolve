@@ -212,70 +212,28 @@ export function NewRecord({ onViewConflicts, department, openConflictCount = 0 }
     setLoading(true);
     setDetectedConflict(null);
 
-    // ── FIREBASE SUBMISSION LOGIC ──────────────────────────────────────────────
-    // This defines the missing submitRecord function and saves to the cloud
-    async function submitRecord(recordData) {
-      try {
-        // 'db' and 'collection' are already imported at the top of your file
-        const docRef = await addDoc(collection(db, "conflicts"), {
-          ...recordData,
-          status: "pending", // Default status for Manager review
-          createdAt: new Date().toISOString(),
-        });
-
-        console.log("Document written with ID: ", docRef.id);
-
-        return {
-          data: {
-            status: "SUCCESS",
-            conflictDetected: false, // Tell the UI there is no conflict yet
-            message: "Record saved. AI is analyzing for conflicts...",
-          },
-        };
-      } catch (e) {
-        console.error("Error adding document: ", e);
-        throw e;
-      }
-    }
-
     try {
-      // Send a clean payload to the backend
-      const result = await submitRecord({
+      console.log("💾 Saving record to Firebase...", form);
+
+      // Save directly to Firebase "records" collection
+      const docRef = await addDoc(collection(db, "records"), {
         ...form,
-        department, // comes from login screen
-        type: "Conflict",
+        department,
+        status: "pending",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       });
 
-      setAiResult(result);
-
-      // Try to detect whether the backend says there is a conflict
-      const data = result?.data ?? result;
-
-      const conflictDetected =
-        data?.status === "CONFLICT_DETECTED" ||
-        data?.conflict?.conflict === true ||
-        data?.conflict === true;
-
-      // If the AI says there is a conflict, show the modal
-      if (conflictDetected) {
-        setDetectedConflict({
-          conflictId: data?.context?.existingRecordId || `CON-${Date.now()}`,
-          severity: data?.severity || "Medium",
-          conflictReason:
-            data?.aiSummary?.conflictReason ||
-            "Conflict detected with an existing record.",
-          departmentsInvolved: [department].filter(Boolean),
-          recommendation:
-            data?.aiSummary?.recommendation ||
-            "Review and coordinate with the affected department.",
-        });
-      } else {
-        setRecordAdded(true);
-        setStage("input");
-      }
-    } catch (err) {
-      console.error(err);
+      console.log("✅ Record saved with ID:", docRef.id);
+      alert("✅ Record saved successfully!");
+      
+      // Reset form
       setRecordAdded(true);
+      setStage("input");
+      reset();
+    } catch (err) {
+      console.error("❌ Error saving record:", err);
+      alert(`❌ Failed to save record: ${err.message}`);
     } finally {
       setLoading(false);
     }
