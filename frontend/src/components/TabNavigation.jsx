@@ -25,6 +25,15 @@ export function TabNavigation({ tabs, activeTab, onTabChange, openConflictCount 
           Decision Review
         </div>
       )}
+
+      {tabs.reviews && (
+        <div
+          className={`tab ${activeTab === "reviews" ? "active" : ""}`}
+          onClick={() => onTabChange("reviews")}
+        >
+          Review & Approval
+        </div>
+      )}
     </div>
   );
 }
