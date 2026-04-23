@@ -26,11 +26,16 @@ export function Workspace({
       />
 
       {activeTab === "new" && (
-        <NewRecord onViewConflicts={() => onTabChange("conflicts")} 
-        department={department} />
+        <NewRecord
+          onViewConflicts={() => onTabChange("conflicts")}
+          department={department}
+          openConflictCount={openConflictCount}
+        />
       )}
 
-      {activeTab === "conflicts" && <ActiveConflicts role={role} />}
+      {activeTab === "conflicts" && (
+        <ActiveConflicts role={role} department={department} />
+      )}
 
       {activeTab === "decisions" && <DecisionReview />}
 

@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { mockRecords } from "../data/mockConflicts";
 
 const deptColors = {
   Production:        { bg: "#f0fdf4", text: "#166534", border: "#86efac" },
@@ -7,19 +6,6 @@ const deptColors = {
   Logistics:         { bg: "#fffbeb", text: "#d97706", border: "#fed7aa" },
   "Quality Control": { bg: "#faf5ff", text: "#7c3aed", border: "#ddd6fe" },
 };
-
-function DeptAvatar({ dept }) {
-  const c = deptColors[dept] || { bg: "#f1f5f9", text: "#475569", border: "#e2e8f0" };
-  const initials = dept.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
-  return (
-    <div style={{
-      width: 34, height: 34, borderRadius: "50%",
-      background: c.bg, color: c.text, border: `1.5px solid ${c.border}`,
-      display: "flex", alignItems: "center", justifyContent: "center",
-      fontSize: 12, fontWeight: 700, flexShrink: 0,
-    }}>{initials}</div>
-  );
-}
 
 function ConfidenceMeter({ value }) {
   const [width, setWidth] = useState(0);
@@ -58,52 +44,43 @@ function Toast({ message, onDone }) {
   );
 }
 
-function RecordCard({ recordId, label }) {
-  const rec = mockRecords.find((r) => r.recordId === recordId);
-  if (!rec) return null;
-  const c = deptColors[rec.department] || { bg: "#f8fafc", text: "#475569", border: "#e2e8f0" };
+function RecordBlock({ recordId, label }) {
+  if (!recordId || recordId === "—") return null;
   return (
     <div style={{
       flex: 1, background: "#f8fafc", border: "1.5px solid #e2e8f0",
       borderRadius: 12, padding: "14px 16px",
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
-        <span style={{
-          fontSize: 10, fontWeight: 700, color: "#94a3b8",
-          textTransform: "uppercase", letterSpacing: "0.07em",
-        }}>{label}</span>
-        <span style={{
-          fontSize: 11, padding: "2px 8px", borderRadius: 100,
-          background: c.bg, color: c.text, fontWeight: 600, border: `1px solid ${c.border}`,
-        }}>{rec.department}</span>
+      <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>
+        {label}
       </div>
-      <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 3, fontWeight: 600 }}>{rec.recordId}</div>
-      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 7, color: "#0f1923" }}>{rec.title}</div>
-      <div style={{ fontSize: 13, color: "#475569", lineHeight: 1.55, marginBottom: 8 }}>{rec.description}</div>
-      <div style={{ fontSize: 12, color: "#94a3b8", borderTop: "1.5px solid #e2e8f0", paddingTop: 8, marginTop: 4, display: "flex", gap: 12 }}>
-        <span>Role: <b style={{ color: "#475569" }}>{rec.role}</b></span>
-        <span>{new Date(rec.timestamp).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}</span>
-      </div>
-      {rec.value && (
-        <div style={{ marginTop: 8, fontSize: 12, background: "#fff", borderRadius: 7, padding: "5px 10px", color: "#334155", border: "1px solid #e2e8f0", fontWeight: 500 }}>
-          {rec.value}
-        </div>
-      )}
+      <div style={{ fontSize: 13, fontWeight: 600, color: "#0f1923" }}>{recordId}</div>
     </div>
   );
 }
 
 export default function ConflictPopup({ conflict, role, onClose, onResolve }) {
-  const [toast, setToast]               = useState(null);
-  const [showOverride, setShowOverride] = useState(false);
+  const [toast, setToast]                   = useState(null);
+  const [showOverride, setShowOverride]     = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
-  const [finalNote, setFinalNote]       = useState("");
-  const [localStatus, setLocalStatus]   = useState(conflict.status);
+  const [finalNote, setFinalNote]           = useState("");
+  const [localStatus, setLocalStatus]       = useState(conflict.status);
 
   const isReadOnly       = role === "data_entry";
   const isSupervisorPlus = role === "supervisor" || role === "manager";
   const isManager        = role === "manager";
-  const isResolved       = localStatus === "resolved";
+  const isResolved       = localStatus === "resolved" || localStatus === "overridden";
+
+  // Normalise fields — handle both Firebase format and mock format
+  const conflictReason  = conflict.conflictReason || conflict.issue_summary || "Conflict detected";
+  const aiSummaryText   = typeof conflict.aiSummary === "string"
+    ? conflict.aiSummary
+    : conflict.aiSummary?.conflictReason || conflict.issue_summary || "—";
+  const recommendation  = conflict.recommendation ||
+    (typeof conflict.aiSummary === "object" ? conflict.aiSummary?.recommendation : null) ||
+    conflict.ai_recommendation || "—";
+  const confidence      = conflict.confidence || 0;
+  const departments     = conflict.departmentsInvolved || [];
 
   useEffect(() => {
     const k = (e) => { if (e.key === "Escape") onClose(); };
@@ -123,19 +100,12 @@ export default function ConflictPopup({ conflict, role, onClose, onResolve }) {
 
   function confirmOverride() {
     if (!overrideReason) return;
-    setLocalStatus("resolved");
+    setLocalStatus("overridden");
     setShowOverride(false);
     setToast("Override logged — conflict resolved");
     onResolve && onResolve(conflict.conflictId, { managerAction: "overridden", finalNote: finalNote || overrideReason });
     setTimeout(onClose, 1800);
   }
-
-  const severityColors = {
-    High:   { bg: "#fef2f2", border: "#fecaca", text: "#dc2626" },
-    Medium: { bg: "#fffbeb", border: "#fed7aa", text: "#d97706" },
-    Low:    { bg: "#eff6ff", border: "#bfdbfe", text: "#2563eb" },
-  };
-  const sc = severityColors[conflict.severity] || {};
 
   return (
     <div className="overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -146,21 +116,21 @@ export default function ConflictPopup({ conflict, role, onClose, onResolve }) {
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 700 }}>{conflict.conflictId}</span>
-              <span className={`badge badge-${conflict.severity.toLowerCase()}`}>{conflict.severity}</span>
+              <span className={`badge badge-${(conflict.severity || "medium").toLowerCase()}`}>{conflict.severity || "Medium"}</span>
               {isResolved && (
                 <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 100, background: "#f0fdf4", color: "#16a34a", fontWeight: 700, border: "1px solid #86efac" }}>
-                  Resolved
+                  {localStatus === "overridden" ? "Overridden" : "Resolved"}
                 </span>
               )}
             </div>
-            <h3 className="popup-title">{conflict.conflictReason}</h3>
+            <h3 className="popup-title">{conflictReason}</h3>
           </div>
           <button className="close-btn" onClick={onClose}>×</button>
         </div>
 
         {/* Dept pills + time */}
         <div style={{ display: "flex", gap: 7, marginBottom: 20, alignItems: "center", flexWrap: "wrap" }}>
-          {conflict.departmentsInvolved.map((d) => {
+          {departments.map((d) => {
             const c = deptColors[d] || {};
             return (
               <span key={d} style={{ fontSize: 13, padding: "4px 12px", borderRadius: 100, background: c.bg || "#f1f5f9", color: c.text || "#475569", fontWeight: 600, border: `1px solid ${c.border || "#e2e8f0"}` }}>{d}</span>
@@ -172,8 +142,8 @@ export default function ConflictPopup({ conflict, role, onClose, onResolve }) {
         {/* Conflicting records */}
         <p className="section-label">Conflicting records</p>
         <div style={{ display: "flex", gap: 12, marginBottom: 4 }}>
-          <RecordCard recordId={conflict.recordA} label="Record A" />
-          <RecordCard recordId={conflict.recordB} label="Record B" />
+          <RecordBlock recordId={conflict.recordA} label="Record A" />
+          <RecordBlock recordId={conflict.recordB} label="Record B" />
         </div>
 
         {/* AI Summary */}
@@ -187,14 +157,14 @@ export default function ConflictPopup({ conflict, role, onClose, onResolve }) {
             </div>
             <span style={{ fontSize: 12, fontWeight: 700, color: "#16a34a", textTransform: "uppercase", letterSpacing: "0.07em" }}>AI summary</span>
           </div>
-          <p className="ai-text">{conflict.aiSummary}</p>
+          <p className="ai-text">{aiSummaryText}</p>
         </div>
 
         {/* Recommendation */}
         <p className="section-label">Recommendation</p>
         <div className="rec-block">
-          <p style={{ fontSize: 14, color: "#0f1923", lineHeight: 1.65, marginBottom: 2, fontWeight: 500 }}>{conflict.recommendation}</p>
-          <ConfidenceMeter value={conflict.confidence} />
+          <p style={{ fontSize: 14, color: "#0f1923", lineHeight: 1.65, marginBottom: 2, fontWeight: 500 }}>{recommendation}</p>
+          <ConfidenceMeter value={confidence} />
         </div>
 
         {isReadOnly && <p className="readonly-note">View only — actions require Supervisor or Manager access.</p>}

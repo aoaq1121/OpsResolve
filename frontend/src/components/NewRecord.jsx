@@ -1,12 +1,11 @@
 import { useState } from "react";
 import { submitRecord } from "../services/aiService";
-import mockConflicts from "../data/mockConflicts";
 import { ConflictDetectedModal } from "./ConflictDetectedModal";
 
 // ── New Record tab ────────────────────────────────────────────────────────────
 // This is the input form page.
 // It collects the user's data, sends it to the backend, then shows the AI result.
-export function NewRecord({ onViewConflicts, department }) {
+export function NewRecord({ onViewConflicts, department, openConflictCount = 0 }) {
   const [form, setForm] = useState({
     title: "",
     category: "",
@@ -96,7 +95,7 @@ export function NewRecord({ onViewConflicts, department }) {
     setRecordAdded(false); 
   }
 
-  const openCount = mockConflicts.filter((c) => c.status !== "resolved").length;
+  const openCount = 0; // will be updated when connected to real data
 
   return (
     <div style={{ padding: "1.75rem", width: "100%" }}>
@@ -127,21 +126,21 @@ export function NewRecord({ onViewConflicts, department }) {
             />
           </svg>
           View Active Conflicts
-          {openCount > 0 && (
-            <span
-              style={{
-                marginLeft: 7,
-                background: "#ef4444",
-                color: "#fff",
-                fontSize: 10,
-                fontWeight: 700,
-                padding: "1px 7px",
-                borderRadius: 100,
-              }}
-            >
-              {openCount}
-            </span>
-          )}
+          {openConflictCount > 0 && (
+  <span
+    style={{
+      marginLeft: 7,
+      background: "#ef4444",
+      color: "#fff",
+      fontSize: 10,
+      fontWeight: 700,
+      padding: "1px 7px",
+      borderRadius: 100,
+    }}
+  >
+    {openConflictCount}
+  </span>
+)}
         </button>
       </div>
 
