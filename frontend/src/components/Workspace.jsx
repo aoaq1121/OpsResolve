@@ -34,7 +34,7 @@ export function Workspace({
       )}
 
       {activeTab === "conflicts" && (
-        <ActiveConflicts role={role} department={department} />
+        <ActiveConflicts role={role} department={department} onMoveToDecisionReview={() => onTabChange("decisions")} />
       )}
 
       {activeTab === "decisions" && <DecisionReview />}

@@ -1,288 +1,324 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { db, collection, onSnapshot, updateDoc, doc, addDoc } from "../firebase";
 import ConflictPopup from "./ConflictPopup";
 
 const severityOrder = { High: 0, Medium: 1, Low: 2 };
 
-const statusMeta = {
-  urgent:   { label: "Awaiting coordination", dot: "#ef4444", pulse: true },
-  progress: { label: "Meeting scheduled",     dot: "#f59e0b", pulse: false },
-  pending:  { label: "Pending review",        dot: "#94a3b8", pulse: false },
-  resolved: { label: "Resolved",              dot: "#22c55e", pulse: false },
-};
-
-function SeverityBadge({ severity }) {
-  return <span className={`badge badge-${severity.toLowerCase()}`}>{severity}</span>;
-}
-
-function StatusDot({ type }) {
-  const m = statusMeta[type] || statusMeta.pending;
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-      <span style={{
-        width: 8, height: 8, borderRadius: "50%", background: m.dot, display: "inline-block",
-        ...(m.pulse ? { animation: "pulse 1.5s infinite" } : {}),
-      }} />
-      <span style={{ fontSize: 13, color: "#64748b", fontWeight: 500 }}>{m.label}</span>
-    </span>
-  );
-}
-
-export default function ActiveConflicts({ role, department }) {
-  const [conflicts, setConflicts]       = useState([]);
-  const [loading, setLoading]           = useState(true);
-  const [error, setError]               = useState(null);
-  const [selected, setSelected]         = useState(null);
-  const [filter, setFilter]             = useState("All");
-  const [search, setSearch]             = useState("");
+export default function ActiveConflicts({ role, department, onMoveToDecisionReview }) {
+  const [conflicts, setConflicts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterPriority, setFilterPriority] = useState("All");
+  const [selectedConflict, setSelectedConflict] = useState(null);
+  const [modalOverrideText, setModalOverrideText] = useState("");
+  const [supervisorNote, setSupervisorNote] = useState("");
   const [showResolved, setShowResolved] = useState(false);
 
-  const isReadOnly = role === "data_entry";
-  const filters    = ["All", "High", "Medium", "Low"];
-
+  // 1. LIVE FIREBASE CONNECTION (Your logic)
   useEffect(() => {
-    fetchConflicts();
-    const interval = setInterval(fetchConflicts, 5000);
-    return () => clearInterval(interval);
+    const unsubscribe = onSnapshot(collection(db, "conflicts"), (snapshot) => {
+      const data = snapshot.docs.map(d => ({ 
+        id: d.id, 
+        ...d.data(),
+        // Ensure status mapping matches UI expectations
+        displayStatus: d.data().status === 'pending' ? 'Awaiting coordination' : 'Resolved'
+      }));
+      setConflicts(data);
+      setLoading(false);
+    });
+    return () => unsubscribe();
   }, []);
 
-  async function fetchConflicts() {
-    try {
-      const response = await fetch("http://localhost:3001/api/conflicts");
-      const data = await response.json();
+  // 2. SEARCH & FILTER LOGIC (Her logic)
+  // 2. SEARCH & FILTER & GROUPING LOGIC
+  const filteredConflicts = useMemo(() => {
+  const groups = {};
 
-      const raw = Array.isArray(data) ? data : data.data || [];
+  conflicts.forEach((record) => {
+    const groupId = record.conflictId || record.location || "unassigned";
+    const priority = record.priority || record.severity || "Medium";
 
-      const mapped = raw.map((c) => ({
-        conflictId: c.id || c.conflictId,
-        conflictReason: c.conflictReason || c.issue_summary || c.title || "Conflict detected",
-        severity: c.severity ? c.severity.charAt(0).toUpperCase() + c.severity.slice(1) : "Medium",
-        departmentsInvolved: c.departmentsInvolved ||
-          [c.department_a, c.department_b].filter(Boolean) ||
-          [c.department].filter(Boolean),
-        status: c.status === "active" ? "open" : c.status,
-        statusType: c.status === "active" ? "urgent" :
-                    c.status === "overridden" || c.status === "resolved" ? "resolved" : "pending",
-        confidence: c.confidence
-          ? (c.confidence <= 1 ? Math.round(c.confidence * 100) : c.confidence)
-          : 0,
-        reportedAt: c.first_detected ? new Date(c.first_detected).toLocaleString() : "—",
-        recordA: c.records_involved?.[0] || c.recordA || "—",
-        recordB: c.records_involved?.[1] || c.recordB || "—",
-        aiSummary: {
-          recommendation: c.ai_recommendation || c.recommendation || c.aiSummary?.recommendation || "—",
-          conflictReason: c.issue_summary || c.conflictReason || c.aiSummary || "—",
-        },
-        decision: c.finalSolution ? { managerAction: c.resolutionType, finalNote: c.finalSolution } : null,
-      }));
-
-      setConflicts(mapped);
-      setLoading(false);
-    } catch (err) {
-      console.error("Failed to fetch conflicts:", err);
-      setError("Could not connect to server");
-      setLoading(false);
+    if (!groups[groupId]) {
+      groups[groupId] = {
+        id: groupId,
+        title: record.title,
+        priority,
+        involvedRecords: [],
+        statusList: [],
+        managerDecision: null,
+        finalSolution: null,
+      };
     }
-  }
 
-  const openCount = useMemo(
-    () => conflicts.filter((c) => c.status !== "resolved" && c.status !== "overridden").length,
-    [conflicts]
-  );
+    groups[groupId].involvedRecords.push(record);
+    groups[groupId].statusList.push(record.status);
 
-  const filtered = useMemo(() => {
-    return conflicts
-      .filter((c) => showResolved ? true : c.status !== "resolved" && c.status !== "overridden")
-      // Department filter — managers see all, others see only their department's conflicts
-      .filter((c) =>
-        role === "manager"
-          ? true
-          : (c.departmentsInvolved || []).includes(department)
+    if (!groups[groupId].managerDecision) {
+      if (record.resolutionType === "AI_ACCEPTED") {
+        groups[groupId].managerDecision = "Accepted AI recommendation";
+      } else if (record.resolvedBy === "Manager" || record.status === "overridden") {
+        groups[groupId].managerDecision = "Manual override";
+      }
+    }
+    if (!groups[groupId].finalSolution && record.finalSolution) {
+      groups[groupId].finalSolution = record.finalSolution;
+    }
+  });
+
+  const result = Object.values(groups).map((group) => {
+    const hasPending = group.statusList.includes("pending");
+    const hasOverridden = group.statusList.includes("overridden");
+    const hasResolved = group.statusList.includes("resolved");
+    const status = hasPending ? "pending" : hasOverridden ? "overridden" : hasResolved ? "resolved" : group.statusList[0] || "pending";
+
+    return {
+      ...group,
+      status,
+      statusLabel:
+        status === "pending"
+          ? "Pending"
+          : status === "resolved"
+          ? "Resolved"
+          : status === "overridden"
+          ? "Overridden"
+          : status.charAt(0).toUpperCase() + status.slice(1),
+    };
+  });
+
+  return result
+    .filter((group) => group.involvedRecords.length > 1)
+    .filter((group) => showResolved || group.status === "pending")
+    .filter((group) =>
+      !searchTerm ||
+      group.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      group.involvedRecords.some((r) =>
+        r.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        r.description?.toLowerCase().includes(searchTerm.toLowerCase())
       )
-      .filter((c) => filter === "All" || c.severity === filter)
-      .filter((c) =>
-        search === "" ||
-        (c.conflictReason && c.conflictReason.toLowerCase().includes(search.toLowerCase())) ||
-        (c.departmentsInvolved && c.departmentsInvolved.some((d) => d.toLowerCase().includes(search.toLowerCase()))) ||
-        (c.conflictId && c.conflictId.toLowerCase().includes(search.toLowerCase()))
-      )
-      .sort((a, b) => (severityOrder[a.severity] ?? 2) - (severityOrder[b.severity] ?? 2));
-  }, [conflicts, filter, search, showResolved, role, department]);
+    )
+    .filter((group) => filterPriority === "All" || group.priority === filterPriority);
+}, [conflicts, searchTerm, filterPriority, showResolved]);
 
-  const counts = useMemo(() => ({
-    All:    filtered.length,
-    High:   filtered.filter((c) => c.severity === "High").length,
-    Medium: filtered.filter((c) => c.severity === "Medium").length,
-    Low:    filtered.filter((c) => c.severity === "Low").length,
-  }), [filtered]);
+  const openCount = conflicts.filter((c) => c.status === "pending").length;
 
-  function handleResolve(conflictId, decision) {
-    setConflicts((prev) =>
-      prev.map((c) =>
-        c.conflictId === conflictId
-          ? { ...c, status: "resolved", statusType: "resolved", decision }
-          : c
-      )
+  // 3. ACTIONS
+  // In ActiveConflicts.jsx
+  const handleAccept = async (groupId, supervisorData = {}) => {
+    try {
+      // 1. Find all specific Firestore documents that belong to this group
+      const recordsToUpdate = conflicts.filter(
+        (r) => (r.conflictId || r.location) === groupId
+      );
+
+      // 2. Prepare the update object
+      // If it's a final resolution, we set status to resolved. 
+      // Otherwise, we just save the announcement/meeting info.
+      const updatePayload = {
+        ...supervisorData,
+        updatedAt: new Date().toISOString()
+      };
+
+      // 3. Update every document in that group in Firebase
+      const promises = recordsToUpdate.map((record) =>
+        updateDoc(doc(db, "conflicts", record.id), updatePayload)
+      );
+
+      await Promise.all(promises);
+      console.log("Firebase Update Success:", updatePayload);
+    } catch (err) {
+      console.error("Firebase Update Error:", err);
+      alert("Failed to save to database. Check console.");
+    }
+  };
+
+  const handleConfirmOverride = async (id, solution) => {
+    if (!solution.trim()) return alert("Please enter the override solution.");
+    await updateDoc(doc(db, "conflicts", id), { 
+      status: "overridden",
+      finalSolution: solution,
+      resolvedBy: "Manager"
+    });
+    setSelectedConflict(null);
+    setModalOverrideText("");
+  };
+
+  // Updated Action inside ActiveConflicts.jsx
+  const handleSupervisorAction = async (groupId, updateData) => {
+    // Find all records that belong to this conflict group
+    const recordsToUpdate = conflicts.filter(r => (r.conflictId || r.location) === groupId);
+    
+    const promises = recordsToUpdate.map(record => 
+      updateDoc(doc(db, "conflicts", record.id), {
+        ...updateData, // This adds announcement or meetingDate/Time
+        lastActionBy: role,
+        updatedAt: new Date().toISOString()
+      })
     );
-  }
+
+    await Promise.all(promises);
+  };
+
+  if (loading) return <div style={{ padding: '40px', textAlign: 'center' }}>Loading Live Ops Board...</div>;
 
   return (
-    <div className="tab-content">
-      <div className="section-header">
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <h2 className="section-title">Active Conflicts</h2>
-          {openCount > 0 && <span className="conflict-count">{openCount} open</span>}
+    <div style={{ padding: '2rem', fontFamily: 'Inter, sans-serif' }}>
+      
+      {/* HEADER */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <h1 style={{ fontSize: '24px', fontWeight: 'bold', margin: 0 }}>Active Conflicts</h1>
+          {openCount > 0 && (
+            <span style={{ background: '#fee2e2', color: '#ef4444', padding: '2px 10px', borderRadius: '12px', fontSize: '13px', fontWeight: 'bold' }}>
+              {openCount} open
+            </span>
+          )}
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button
+        <button
             onClick={() => setShowResolved(!showResolved)}
-            style={{
-              fontSize: 13, fontWeight: 600,
-              color: showResolved ? "#2563eb" : "#64748b",
-              background: showResolved ? "#eff6ff" : "none",
-              border: "1.5px solid #e2e8f0",
-              borderRadius: 8, padding: "6px 14px", cursor: "pointer",
-            }}
+            style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #e2e8f0", cursor: "pointer", background: showResolved ? "#eff6ff" : "white" }}
           >
-            {showResolved ? "Hide resolved" : "Show resolved"}
-          </button>
-          <button
-            onClick={fetchConflicts}
-            style={{
-              fontSize: 13, fontWeight: 600, color: "#64748b",
-              background: "none", border: "1.5px solid #e2e8f0",
-              borderRadius: 8, padding: "6px 14px", cursor: "pointer",
-            }}
-          >
-            Refresh
-          </button>
-        </div>
+            {showResolved ? "Hide Resolved" : "Show All"}
+        </button>
       </div>
 
-      {isReadOnly && (
-        <div className="readonly-banner">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
-            <circle cx="8" cy="8" r="6.5" stroke="#2563eb" strokeWidth="1.3"/>
-            <path d="M8 7v4M8 5.5v.3" stroke="#2563eb" strokeWidth="1.5" strokeLinecap="round"/>
-          </svg>
-          View only — conflict coordination requires Supervisor or Manager access.
+      {role === 'data_entry' && (
+        <div style={{ background: '#eff6ff', border: '1px solid #dbeafe', color: '#1e40af', padding: '12px 16px', borderRadius: '8px', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px' }}>
+          <span>ⓘ</span> View only — coordination requires Supervisor access.
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 10, marginBottom: 18, alignItems: "center", flexWrap: "wrap" }}>
-        <div style={{
-          display: "flex", alignItems: "center", gap: 9,
-          background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10,
-          padding: "0 14px", flex: 1, minWidth: 180, height: 40,
-        }}>
-          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" style={{ flexShrink: 0 }}>
-            <circle cx="6.5" cy="6.5" r="4.5" stroke="#94a3b8" strokeWidth="1.4"/>
-            <path d="M10.5 10.5l3 3" stroke="#94a3b8" strokeWidth="1.4" strokeLinecap="round"/>
-          </svg>
-          <input
-            type="text"
-            placeholder="Search by ID, reason or department..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{
-              border: "none", outline: "none", background: "transparent",
-              fontSize: 14, width: "100%", padding: 0, color: "#0f1923",
-            }}
-          />
-          {search && (
-            <button onClick={() => setSearch("")} style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", fontSize: 16, lineHeight: 1 }}>×</button>
-          )}
-        </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          {filters.map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`filter-btn ${filter === f ? "filter-btn-active" : ""} ${f !== "All" ? `filter-btn-${f.toLowerCase()}` : ""}`}
+      {/* SEARCH & FILTERS */}
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '2rem' }}>
+        <input 
+          type="text" 
+          placeholder="Search conflicts..." 
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+        />
+        <div style={{ display: 'flex', gap: '5px', background: '#f1f5f9', padding: '4px', borderRadius: '8px' }}>
+          {["All", "High", "Medium", "Low"].map(p => (
+            <button 
+              key={p}
+              onClick={() => setFilterPriority(p)}
+              style={{ 
+                padding: '6px 12px', border: 'none', borderRadius: '6px', cursor: 'pointer',
+                background: filterPriority === p ? '#1e293b' : 'transparent',
+                color: filterPriority === p ? 'white' : '#64748b'
+              }}
             >
-              {f}
-              <span className="filter-count">{counts[f]}</span>
+              {p}
             </button>
           ))}
         </div>
       </div>
 
-      {loading ? (
-        <div style={{ textAlign: "center", padding: "3rem", color: "#94a3b8" }}>
-          <div style={{ width: 24, height: 24, border: "2.5px solid #e2e8f0", borderTop: "2.5px solid #2563eb", borderRadius: "50%", animation: "spin 0.7s linear infinite", margin: "0 auto 12px" }} />
-          Loading conflicts...
-        </div>
-      ) : error ? (
-        <div style={{ textAlign: "center", padding: "3rem", color: "#ef4444", fontSize: 14 }}>
-          {error} — <button onClick={fetchConflicts} style={{ color: "#2563eb", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>retry</button>
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="empty-state">No conflicts match your filter.</div>
-      ) : (
-        <div className="conflict-list">
-          {filtered.map((conflict, i) => (
-            <div
-              key={conflict.conflictId || i}
-              className={`conflict-card severity-${(conflict.severity || "low").toLowerCase()}`}
-              onClick={() => setSelected(conflict)}
-              style={{ animationDelay: `${i * 55}ms`, opacity: conflict.status === "resolved" || conflict.status === "overridden" ? 0.55 : 1 }}
-            >
-              <div className="conflict-card-header">
-                <SeverityBadge severity={conflict.severity || "Low"} />
-                <span className="conflict-title">{conflict.conflictReason}</span>
-                {(conflict.status === "resolved" || conflict.status === "overridden") && (
-                  <span style={{
-                    marginLeft: "auto", fontSize: 12, padding: "3px 10px", borderRadius: 100,
-                    background: "#f0fdf4", color: "#16a34a", fontWeight: 700,
-                    border: "1px solid #86efac", flexShrink: 0,
-                  }}>
-                    {conflict.status === "overridden" ? "Overridden" : "Resolved"}
-                  </span>
-                )}
+      {/* CONFLICT LIST (Fix: Width 100% for longer blocks) */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%' }}>
+        {filteredConflicts.map(c => (
+          <div 
+            key={c.id} 
+            onClick={() => setSelectedConflict(c)} 
+            style={{ 
+              cursor: 'pointer', width: '100%', // THIS MAKES IT LONG
+              background: 'white', borderRadius: '14px', padding: '24px', border: '1px solid #e2e8f0',
+              borderLeft: `6px solid ${c.priority === 'High' ? '#ef4444' : '#3b82f6'}`,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
+              opacity: (c.status === 'resolved' || c.status === 'overridden') ? 0.6 : 1
+            }}
+            
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+               <span style={{ fontSize: '12px', fontWeight: 'bold', padding: '4px 8px', borderRadius: '4px', background: '#f1f5f9' }}>
+                 {c.priority} Priority
+               </span>
+               <span style={{ fontSize: '12px', color: '#94a3b8' }}>ID: {c.id.slice(0,5)}</span>
+            </div>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
+              <span style={{ fontSize: '12px', fontWeight: '700', padding: '5px 10px', borderRadius: '999px', background: c.status === 'pending' ? '#fef3c7' : c.status === 'resolved' ? '#d1fae5' : '#fee2e2', color: c.status === 'pending' ? '#b45309' : c.status === 'resolved' ? '#065f46' : '#991b1b' }}>
+                {c.statusLabel}
+              </span>
+              {c.managerDecision && (
+                <span style={{ fontSize: '12px', fontWeight: '700', padding: '5px 10px', borderRadius: '999px', background: '#e0f2fe', color: '#0369a1' }}>
+                  Decision: {c.managerDecision}
+                </span>
+              )}
+            </div>
+            <h3 style={{ margin: '0 0 10px 0' }}>
+                {/* Show the Location as the Case Title instead of just the first activity's title */}
+                Conflict Case: {c.involvedRecords[0]?.location || "General Area"}
+              </h3>
+
+              <div style={{ fontSize: '14px', color: '#ef4444', fontWeight: 'bold', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                {c.involvedRecords.length} Activities Overlapping
               </div>
 
-              <div style={{ fontSize: 12, color: "#94a3b8", margin: "5px 0 8px", display: "flex", gap: 8, alignItems: "center" }}>
-                <span style={{ background: "#f1f5f9", padding: "2px 8px", borderRadius: 5, fontWeight: 600, color: "#475569" }}>{conflict.recordA}</span>
-                <span style={{ color: "#cbd5e1" }}>↔</span>
-                <span style={{ background: "#f1f5f9", padding: "2px 8px", borderRadius: 5, fontWeight: 600, color: "#475569" }}>{conflict.recordB}</span>
-                <span style={{ color: "#e2e8f0", marginLeft: 2 }}>·</span>
-                <span style={{ color: "#94a3b8", fontSize: 11 }}>{conflict.conflictId}</span>
-              </div>
+              <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '10px' }}>
+                {/* List the names of all clashing activities */}
+                <strong>Involved:</strong> {c.involvedRecords.map(r => r.title).join(" ↔️ ")}
+              </p>
 
-              <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
-                {(conflict.departmentsInvolved || []).map((d) => (
-                  <span key={d} className="dept-tag">{d}</span>
-                ))}
-              </div>
+              <p style={{ color: '#94a3b8', fontSize: '13px', fontStyle: 'italic' }}>
+                {/* Show the first description as a preview */}
+                Preview: "{c.involvedRecords[0]?.description?.substring(0, 60)}..."
+              </p>
 
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <StatusDot type={conflict.statusType || "pending"} />
-                <span style={{ fontSize: 12, color: "#94a3b8" }}>{conflict.reportedAt}</span>
-              </div>
+              {c.finalSolution && (
+                <p style={{ color: '#1f2937', fontSize: '13px', marginBottom: '10px', background: '#f8fafc', padding: '10px 12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                  <strong>Override reason:</strong> {c.finalSolution}
+                </p>
+              )}
 
-              <div style={{ marginTop: 12, height: 4, background: "#f1f5f9", borderRadius: 2, overflow: "hidden" }}>
-                <div style={{
-                  height: "100%",
-                  width: `${conflict.confidence || 0}%`,
-                  background: (conflict.confidence || 0) >= 80 ? "#22c55e" : (conflict.confidence || 0) >= 60 ? "#f59e0b" : "#ef4444",
-                  borderRadius: 2, transition: "width 0.5s ease",
-                }} />
-              </div>
-              <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4, textAlign: "right", fontWeight: 500 }}>
-                AI confidence {conflict.confidence || 0}%
+              {/* --- START STEP B: SUPERVISOR ACTION BANNERS --- */}
+      {(c.involvedRecords.some(r => r.announcement) || c.involvedRecords.some(r => r.meetingDate)) && (
+        <div style={{ 
+          marginTop: '16px', 
+          paddingTop: '16px', 
+          borderTop: '1px dashed #e2e8f0',
+          display: 'flex', 
+          flexDirection: 'column', 
+          gap: '8px' 
+        }}>
+          {/* Announcement Row */}
+          {c.involvedRecords.some(r => r.announcement) && (
+            <div style={{ background: '#fff7ed', border: '1px solid #ffedd5', padding: '8px 12px', borderRadius: '8px', display: 'flex', gap: '10px', alignItems: 'center' }}>
+              <span>📢</span>
+              <div style={{ fontSize: '13px', color: '#9a3412' }}>
+                <strong>Announcement:</strong> {c.involvedRecords.find(r => r.announcement).announcement}
               </div>
             </div>
-          ))}
+          )}
+
+          {/* Meeting Row */}
+          {c.involvedRecords.some(r => r.meetingDate) && (
+            <div style={{ background: '#f0fdf4', border: '1px solid #dcfce7', padding: '8px 12px', borderRadius: '8px', display: 'flex', gap: '10px', alignItems: 'center' }}>
+              <span>📅</span>
+              <div style={{ fontSize: '13px', color: '#166534' }}>
+                <strong>Meeting:</strong> {c.involvedRecords.find(r => r.meetingDate).meetingDate} at {c.involvedRecords.find(r => r.meetingDate).meetingTime}
+              </div>
+            </div>
+          )}
         </div>
       )}
+      {/* --- END STEP B --- */}
 
-      {selected && (
-        <ConflictPopup
-          conflict={conflicts.find((c) => c.conflictId === selected.conflictId)}
+    </div> // This closes the individual conflict card
+  ))}
+</div>
+            
+
+      {/* POPUP MODAL (Her design) */}
+      {selectedConflict && (
+        <ConflictPopup 
+          conflict={selectedConflict} 
           role={role}
-          onClose={() => setSelected(null)}
-          onResolve={handleResolve}
+          onClose={() => setSelectedConflict(null)}
+          onAccept={handleAccept}
+          onDecisionComplete={onMoveToDecisionReview}
         />
       )}
     </div>
+    
   );
 }

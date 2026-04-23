@@ -1,8 +1,8 @@
+import React, { useState, useEffect, useMemo } from 'react';
 import "./App.css";
 import { ROLES, getVisibleTabs } from "./constants/appConstants";
 import { EntryScreen } from "./components/EntryScreen";
 import { Workspace } from "./components/Workspace";
-import { useState, useEffect } from "react";
 
 export default function App() {
   const [screen, setScreen]   = useState("entry");
@@ -12,22 +12,6 @@ export default function App() {
   const [openConflictCount, setOpenConflictCount] = useState(0);
 
   const tabs = getVisibleTabs(role);
-
-  useEffect(() => {
-    function load() {
-      fetch("http://localhost:3001/api/conflicts")
-        .then((res) => res.json())
-        .then((data) => {
-          const raw = Array.isArray(data) ? data : data.data || [];
-          const open = raw.filter((c) => c.status !== "resolved" && c.status !== "overridden").length;
-          setOpenConflictCount(open);
-        })
-        .catch(() => setOpenConflictCount(0));
-    }
-    load();
-    const interval = setInterval(load, 5000);
-    return () => clearInterval(interval);
-  }, []);
 
   function handleContinue() {
     if (!role || !department) {

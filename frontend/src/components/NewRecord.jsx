@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { submitRecord } from "../services/aiService";
+import { db, collection, addDoc } from "../firebase"; //
+import mockConflicts from "../data/mockConflicts";
 import { ConflictDetectedModal } from "./ConflictDetectedModal";
 
 // ── New Record tab ────────────────────────────────────────────────────────────
@@ -22,6 +24,7 @@ export function NewRecord({ onViewConflicts, department, openConflictCount = 0 }
   const [loading, setLoading] = useState(false);
   const [detectedConflict, setDetectedConflict] = useState(null);
   const [recordAdded, setRecordAdded] = useState(false);
+  const [aiResult, setAiResult] = useState(null);
 
   // Updates one field in the form
   function handleChange(field, val) {
@@ -40,13 +43,42 @@ export function NewRecord({ onViewConflicts, department, openConflictCount = 0 }
 
     setLoading(true);
     setDetectedConflict(null);
+// ── FIREBASE SUBMISSION LOGIC ──────────────────────────────────────────────
+  // This defines the missing submitRecord function and saves to the cloud
+  async function submitRecord(recordData) {
+    try {
+      // 'db' and 'collection' are already imported at the top of your file
+      const docRef = await addDoc(collection(db, "conflicts"), {
+        ...recordData,
+        status: "pending", // Default status for Manager review
+        createdAt: new Date().toISOString(),
+      });
+      
+      console.log("Document written with ID: ", docRef.id);
+      
+      return {
+      data: {
+        status: "SUCCESS", 
+        conflictDetected: false, // Tell the UI there is no conflict yet
+        message: "Record saved. AI is analyzing for conflicts..."
+      }
+    };
+      
+    } catch (e) {
+      console.error("Error adding document: ", e);
+      throw e;
+    }
+  }
 
     try {
       // Send a clean payload to the backend
       const result = await submitRecord({
         ...form,
         department, // comes from login screen
+        type:"Conflict"
       });
+
+      setAiResult(result);
 
       // Try to detect whether the backend says there is a conflict
       const data = result?.data ?? result;
@@ -83,8 +115,8 @@ export function NewRecord({ onViewConflicts, department, openConflictCount = 0 }
       category: "",
       location: "",
       equipment: "",
-      priority: "Normal",
-      shift: "Morning",
+      priority: "",
+      shift: "",
       date: "",
       duration: "",
       impact: "",
@@ -189,9 +221,9 @@ export function NewRecord({ onViewConflicts, department, openConflictCount = 0 }
           <div className="form-group">
             <label>Priority</label>
             <select value={form.priority} onChange={(e) => handleChange("priority", e.target.value)}>
-              <option>Normal</option>
               <option>High</option>
-              <option>Critical</option>
+              <option>Medium</option>
+              <option>Low</option>
             </select>
           </div>
 
