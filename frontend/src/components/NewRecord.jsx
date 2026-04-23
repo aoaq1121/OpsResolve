@@ -24,6 +24,7 @@ export function NewRecord({ onViewConflicts, department, openConflictCount = 0 }
   const [loading, setLoading] = useState(false);
   const [detectedConflict, setDetectedConflict] = useState(null);
   const [recordAdded, setRecordAdded] = useState(false);
+  const [aiResult, setAiResult] = useState(null);
 
   // Updates one field in the form
   function handleChange(field, val) {
@@ -55,17 +56,14 @@ export function NewRecord({ onViewConflicts, department, openConflictCount = 0 }
       
       console.log("Document written with ID: ", docRef.id);
       
-      // For your hackathon demo, we return a "mock" AI result 
-      // so the rest of your existing logic (modals, etc.) keeps working.
       return {
-        data: {
-          status: "CONFLICT_DETECTED",
-          conflictId: docRef.id,
-          conflict: { conflict: true, reason: "Resource overlap detected with Line B" },
-          impact: { severity: "HIGH", affected_departments: [department, "Logistics"] },
-          decision: { recommendation: "Move maintenance to Night Shift" }
-        }
-      };
+      data: {
+        status: "SUCCESS", 
+        conflictDetected: false, // Tell the UI there is no conflict yet
+        message: "Record saved. AI is analyzing for conflicts..."
+      }
+    };
+      
     } catch (e) {
       console.error("Error adding document: ", e);
       throw e;
@@ -77,6 +75,7 @@ export function NewRecord({ onViewConflicts, department, openConflictCount = 0 }
       const result = await submitRecord({
         ...form,
         department, // comes from login screen
+        type:"Conflict"
       });
 
       setAiResult(result);
