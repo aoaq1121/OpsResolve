@@ -186,6 +186,36 @@ class StateManager {
     await db.collection('conflicts').add(demoConflict);
     return { message: 'Demo data seeded' };
   }
+
+  // Get total records count
+async getRecordsCount() {
+  try {
+    const snapshot = await db.collection('records').get();
+    return snapshot.size;
+  } catch (error) {
+    console.error('Error getting record count:', error);
+    return 0;
+  }
+}
+
+// Save with custom ID
+async saveRecordWithId(recordData, customId) {
+  try {
+    const record = {
+      ...recordData,
+      id: customId,
+      timestamp: new Date().toISOString(),
+      status: recordData.status || 'pending'
+    };
+    
+    await db.collection('records').doc(customId).set(record);
+    console.log('✅ Record saved with custom ID:', customId);
+    return { id: customId, ...record };
+  } catch (error) {
+    console.error('❌ Error saving record:', error);
+    throw error;
+  }
+}
 }
 
 module.exports = new StateManager();

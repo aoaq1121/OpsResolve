@@ -9,6 +9,75 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
+// ========== Record Endpoints ==========
+// In your POST /api/records endpoint
+app.post('/api/records', async (req, res) => {
+  try {
+    const recordData = req.body;
+    
+    // Generate custom ID (record1, record2, etc.)
+    const recordsCount = await stateManager.getRecordsCount();
+    const customId = `record${recordsCount + 1}`;
+    
+    // Save with custom ID
+    const record = await stateManager.saveRecordWithId(recordData, customId);
+    res.status(201).json(record);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ========== Announcement ==========
+app.post('/api/announcements', async (req, res) => {
+  try {
+    const announcementData = req.body;
+    
+    // Generate custom ID (announcement1, announcement2, etc.)
+    const announcementsCount = await stateManager.getAnnouncementsCount();
+    const customId = `announcement${announcementsCount + 1}`;
+    
+    // Save with custom ID
+    const announcement = await stateManager.saveAnnouncementWithId(announcementData, customId);
+    res.status(201).json(announcement);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ========== Decisions==========
+app.post('/api/decisions', async (req, res) => {
+  try {
+    const decisionData = req.body;
+    
+    // Generate custom ID (decision1, decision2, etc.)
+    const decisionsCount = await stateManager.getDecisionsCount();
+    const customId = `decision${decisionsCount + 1}`;
+    
+    // Save with custom ID
+    const decision = await stateManager.saveDecisionWithId(decisionData, customId);
+    res.status(201).json(decision);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+   
+// ========== Conflicts ==========
+app.post('/api/conflicts', async (req, res) => {
+  try {
+    const conflictData = req.body;
+    
+    // Generate custom ID (conflict1, conflict2, etc.)
+    const conflictsCount = await stateManager.getConflictsCount();
+    const customId = `conflict${conflictsCount + 1}`;
+    
+    // Save with custom ID
+    const conflict = await stateManager.saveConflictWithId(conflictData, customId);
+    res.status(201).json(conflict);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ========== HEALTH CHECK ==========
 app.get('/', (req, res) => {
   res.json({ message: 'OpsResolve State Management Server is running!' });
