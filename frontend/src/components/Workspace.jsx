@@ -25,7 +25,8 @@ export function Workspace({
       />
 
       {activeTab === "new" && (
-        <NewRecord onViewConflicts={() => onTabChange("conflicts")} department={department} />
+        <NewRecord onViewConflicts={() => onTabChange("conflicts")} 
+        department={department} />
       )}
 
       {activeTab === "conflicts" && <ActiveConflicts role={role} />}
