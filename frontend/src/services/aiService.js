@@ -1,4 +1,3 @@
-// services/aiService.js
 export async function submitRecord(data) {
   const response = await fetch("http://localhost:5000/api/submit-record", {
     method: "POST",

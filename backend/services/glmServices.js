@@ -1,22 +1,17 @@
-export async function callGLM(agentType, data) {
+const fetch = require("node-fetch");
+require("dotenv").config();
 
-  // ─────────────────────────────────────────────
-  // 1. STRONG STRICT PROMPTS (improved)
-  // ─────────────────────────────────────────────
-  const promptMap = {
-    inputAgent: `
-You are OpsResolve Input Agent.
+const API_URL = "https://api.ilmu.ai/v1/chat/completions";
+const API_KEY = process.env.ILMU_API_KEY;
 
-STRICT RULES:
-- Return ONLY valid JSON
-- No explanation
-- No markdown
-- No extra text
+const prompts = {
+  inputAgent: `
+You are an input parser for an operations management system.
 
-TASK:
-Extract structured fields from input data.
+Rules:
+- Return ONLY valid JSON, no explanation, no markdown
 
-OUTPUT FORMAT:
+Extract structured fields from the input and return:
 {
   "title": "",
   "category": "",
@@ -31,17 +26,13 @@ OUTPUT FORMAT:
 }
 `,
 
-    conflictAgent: `
-You are OpsResolve Conflict Agent.
+  conflictAgent: `
+You are a conflict detection engine for an operations management system.
 
-STRICT RULES:
-- Return ONLY valid JSON
-- No explanation
+Rules:
+- Return ONLY valid JSON, no explanation
 
-TASK:
-Detect operational conflict between new record and existing system.
-
-OUTPUT FORMAT:
+Analyze whether the new record conflicts with the existing record and return:
 {
   "conflict": true,
   "conflictReason": "",
@@ -49,7 +40,7 @@ OUTPUT FORMAT:
   "severity": "Low | Medium | High"
 }
 
-If no conflict:
+If no conflict detected:
 {
   "conflict": false,
   "conflictReason": null,
@@ -58,14 +49,13 @@ If no conflict:
 }
 `,
 
-    impactAgent: `
-You are OpsResolve Impact Agent.
+  impactAgent: `
+You are an impact analysis engine for an operations management system.
 
-STRICT RULES:
-- Return ONLY valid JSON
-- No explanation
+Rules:
+- Return ONLY valid JSON, no explanation
 
-OUTPUT FORMAT:
+Analyze the operational impact and return:
 {
   "impactLevel": "",
   "reason": "",
@@ -73,61 +63,56 @@ OUTPUT FORMAT:
 }
 `,
 
-    decisionAgent: `
-You are OpsResolve Decision Agent.
+  decisionAgent: `
+You are a decision engine for an operations management system.
 
-STRICT RULES:
-- Return ONLY valid JSON
-- No explanation
+Rules:
+- Return ONLY valid JSON, no explanation
 
-OUTPUT FORMAT:
+Based on the conflict and impact data, return a recommended action:
 {
   "actionType": "",
   "recommendation": "",
+  "confidence": 85,
   "escalationNeeded": true
 }
 `
-  };
+};
 
-  // ─────────────────────────────────────────────
-  // 2. SAFE REQUEST
-  // ─────────────────────────────────────────────
-  const response = await fetch("ZAI_GLM_ENDPOINT", {
-    method: "POST",
-    headers: {
-      "Authorization": "Bearer YOUR_KEY",
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: "glm-4",
-      messages: [
-        {
-          role: "system",
-          content: promptMap[agentType]
-        },
-        {
-          role: "user",
-          content: `OpsResolve Input Data:\n${JSON.stringify(data, null, 2)}`
-        }
-      ]
-    })
-  });
-
-  const result = await response.json();
-
-  const content = result?.choices?.[0]?.message?.content;
-
-  // ─────────────────────────────────────────────
-  // 3. SAFE JSON PARSING (IMPORTANT FIX)
-  // ─────────────────────────────────────────────
+async function callGLM(agentType, data) {
   try {
-    return JSON.parse(content);
-  } catch (err) {
-    console.error("❌ GLM JSON parse failed:", content);
+    const response = await fetch(API_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "ilmu-glm-5.1",
+        messages: [
+          {
+            role: "system",
+            content: prompts[agentType],
+          },
+          {
+            role: "user",
+            content: `Input data:\n${JSON.stringify(data, null, 2)}`,
+          },
+        ],
+      }),
+    });
 
-    return {
-      error: "Invalid AI response format",
-      raw: content
-    };
+    const result = await response.json();
+    const content = result?.choices?.[0]?.message?.content;
+
+    if (!content) throw new Error("Empty response from API");
+
+    const clean = content.replace(/```json|```/g, "").trim();
+    return JSON.parse(clean);
+  } catch (err) {
+    console.error(`GLM call failed [${agentType}]:`, err.message);
+    return { error: "Invalid AI response format" };
   }
 }
+
+module.exports = { callGLM };

@@ -11,7 +11,7 @@ app.use(express.json());
 app.post("/api/submit-record", aiController);
 
 app.get("/", (req, res) => {
-  res.send("OpsResolve Backend Running 🚀");
+  res.send("OpsResolve Backend Running");
 });
 
 const PORT = 5000;
