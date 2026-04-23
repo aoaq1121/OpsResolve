@@ -121,7 +121,7 @@ export function NewRecord({ onViewConflicts, department }) {
       category: "",
       location: "",
       equipment: "",
-      priority: "Normal",
+      priority: "Medium",
       shift: "Morning",
       date: "",
       duration: "",
@@ -226,9 +226,9 @@ export function NewRecord({ onViewConflicts, department }) {
           <div className="form-group">
             <label>Priority</label>
             <select value={form.priority} onChange={(e) => handleChange("priority", e.target.value)}>
-              <option>Normal</option>
               <option>High</option>
-              <option>Critical</option>
+              <option>Medium</option>
+              <option>Low</option>
             </select>
           </div>
 
