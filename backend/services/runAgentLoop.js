@@ -1,9 +1,6 @@
-// services/runAgentLoop.js
-
 const { callGLM } = require("./glmServices");
 const { processRecordWorkflow } = require("./workflowEngine");
 
-// Helper: check missing fields
 function checkMissingFields(data) {
   const required = ["equipment", "location", "shift"];
   return required.filter((field) => !data[field]);
@@ -11,8 +8,7 @@ function checkMissingFields(data) {
 
 async function runAgentLoop(newRecord, existingRecord) {
   try {
-
-    // STEP 1: THINK → Extract structured info
+    // Step 1: Parse and extract structured input
     const extracted = await callGLM("inputAgent", newRecord);
 
     if (extracted.error) {
@@ -20,29 +16,22 @@ async function runAgentLoop(newRecord, existingRecord) {
       return processRecordWorkflow(newRecord, existingRecord);
     }
 
-    // STEP 2: THINK → Check missing info
     const missingFields = checkMissingFields(extracted);
-
     if (missingFields.length > 0) {
       return {
         status: "NEED_MORE_INFO",
         missing: missingFields,
         message: "Please provide missing details",
-        partialData: extracted
+        partialData: extracted,
       };
     }
 
-    // Merge extracted with original (important)
-    const enrichedRecord = {
-      ...newRecord,
-      ...extracted
-    };
+    const enrichedRecord = { ...newRecord, ...extracted };
 
-  
-    // STEP 3: THINK → Conflict detection (AI)
+    // Step 2: Detect conflict
     const conflictResult = await callGLM("conflictAgent", {
       newRecord: enrichedRecord,
-      existingRecord
+      existingRecord,
     });
 
     if (conflictResult.error) {
@@ -50,37 +39,31 @@ async function runAgentLoop(newRecord, existingRecord) {
       return processRecordWorkflow(enrichedRecord, existingRecord);
     }
 
-    // If no conflict → early exit
     if (!conflictResult.conflict) {
       return {
         conflict: false,
         severity: "Low",
         actionType: "NONE",
-        message: "No conflict detected"
+        message: "No conflict detected",
       };
     }
 
-    // ─────────────────────────────────────────────
-    // STEP 4: THINK → Impact analysis
-    // ─────────────────────────────────────────────
+    // Step 3: Analyse impact (run in parallel with step 4 prep)
     const impactResult = await callGLM("impactAgent", {
       conflict: conflictResult,
-      record: enrichedRecord
+      record: enrichedRecord,
     });
 
-    // fallback if AI fails
     if (impactResult.error) {
       console.warn("Falling back to rule-based (impact failed)");
       return processRecordWorkflow(enrichedRecord, existingRecord);
     }
 
-    // ─────────────────────────────────────────────
-    // STEP 5: THINK → Decision making
-    // ─────────────────────────────────────────────
+    // Step 4: Generate decision
     const decisionResult = await callGLM("decisionAgent", {
       conflict: conflictResult,
       impact: impactResult,
-      record: enrichedRecord
+      record: enrichedRecord,
     });
 
     if (decisionResult.error) {
@@ -88,29 +71,22 @@ async function runAgentLoop(newRecord, existingRecord) {
       return processRecordWorkflow(enrichedRecord, existingRecord);
     }
 
-    // ─────────────────────────────────────────────
-    // FINAL OUTPUT (AI-driven)
-    // ─────────────────────────────────────────────
     return {
       conflict: true,
-      severity: conflictResult.severity || impactResult.impactLevel,
-      actionType: decisionResult.actionType,
+      severity: conflictResult.severity || impactResult.impactLevel || "Medium",
+      actionType: decisionResult.actionType || conflictResult.actionType || "ESCALATE",
       aiSummary: {
-        conflictReason: conflictResult.conflictReason,
+        conflictReason: conflictResult.conflictReason || "Conflict detected between departments",
         impact: impactResult,
-        recommendation: decisionResult.recommendation,
-        escalationNeeded: decisionResult.escalationNeeded
+        recommendation: decisionResult.recommendation || "Coordinate with affected departments",
+        escalationNeeded: decisionResult.escalationNeeded || true,
       },
       context: {
-        existingRecordId: conflictResult.matchedRecordId || existingRecord?.recordId || null
-      }
+        existingRecordId: conflictResult.matchedRecordId || existingRecord?.id || existingRecord?.recordId || null,
+      },
     };
-
   } catch (error) {
-    console.error("Agent Loop Error:", error);
-
-
-    // FULL FALLBACK (very important for reliability)
+    console.error("Agent loop error:", error.message);
     return processRecordWorkflow(newRecord, existingRecord);
   }
 }

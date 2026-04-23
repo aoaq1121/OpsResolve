@@ -35,9 +35,10 @@ Rules:
 Analyze whether the new record conflicts with the existing record and return:
 {
   "conflict": true,
-  "conflictReason": "",
+  "conflictReason": "detailed reason explaining the conflict",
   "matchedRecordId": null,
-  "severity": "Low | Medium | High"
+  "severity": "Low | Medium | High",
+  "actionType": "ESCALATE | RESCHEDULE | COORDINATE"
 }
 
 If no conflict detected:
@@ -45,7 +46,8 @@ If no conflict detected:
   "conflict": false,
   "conflictReason": null,
   "matchedRecordId": null,
-  "severity": "Low"
+  "severity": "Low",
+  "actionType": "NONE"
 }
 `,
 
@@ -72,46 +74,49 @@ Rules:
 Based on the conflict and impact data, return a recommended action:
 {
   "actionType": "",
-  "recommendation": "",
+  "recommendation": "specific actionable recommendation",
   "confidence": 85,
   "escalationNeeded": true
 }
 `
 };
 
-async function callGLM(agentType, data) {
-  try {
-    const response = await fetch(API_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "ilmu-glm-5.1",
-        messages: [
-          {
-            role: "system",
-            content: prompts[agentType],
-          },
-          {
-            role: "user",
-            content: `Input data:\n${JSON.stringify(data, null, 2)}`,
-          },
-        ],
-      }),
-    });
+async function callGLM(agentType, data, retries = 2) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch(API_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "ilmu-glm-5.1",
+          messages: [
+            {
+              role: "system",
+              content: prompts[agentType],
+            },
+            {
+              role: "user",
+              content: `Input data:\n${JSON.stringify(data, null, 2)}`,
+            },
+          ],
+        }),
+      });
 
-    const result = await response.json();
-    const content = result?.choices?.[0]?.message?.content;
+      const result = await response.json();
+      const content = result?.choices?.[0]?.message?.content;
 
-    if (!content) throw new Error("Empty response from API");
+      if (!content) throw new Error("Empty response from API");
 
-    const clean = content.replace(/```json|```/g, "").trim();
-    return JSON.parse(clean);
-  } catch (err) {
-    console.error(`GLM call failed [${agentType}]:`, err.message);
-    return { error: "Invalid AI response format" };
+      const clean = content.replace(/```json|```/g, "").trim();
+      return JSON.parse(clean);
+    } catch (err) {
+      console.error(`GLM call failed [${agentType}] attempt ${attempt}:`, err.message);
+      if (attempt === retries) return { error: "Invalid AI response format" };
+      await new Promise((r) => setTimeout(r, 1000));
+    }
   }
 }
 
