@@ -1,11 +1,11 @@
 // services/runAgentLoop.js
 
-const { callGLM } = require("./glmService");
+const { callGLM } = require("./glmServices");
 const { processRecordWorkflow } = require("./workflowEngine");
 
 // Helper: check missing fields
 function checkMissingFields(data) {
-  const required = ["equipment", "location", "shift", "department"];
+  const required = ["equipment", "location", "shift"];
   return required.filter((field) => !data[field]);
 }
 
@@ -16,7 +16,7 @@ async function runAgentLoop(newRecord, existingRecord) {
     const extracted = await callGLM("inputAgent", newRecord);
 
     if (extracted.error) {
-      console.warn("⚠️ Falling back to rule-based (input parsing failed)");
+      console.warn("Falling back to rule-based (input parsing failed)");
       return processRecordWorkflow(newRecord, existingRecord);
     }
 
@@ -46,7 +46,7 @@ async function runAgentLoop(newRecord, existingRecord) {
     });
 
     if (conflictResult.error) {
-      console.warn("⚠️ Falling back to rule-based (conflict detection failed)");
+      console.warn("Falling back to rule-based (conflict detection failed)");
       return processRecordWorkflow(enrichedRecord, existingRecord);
     }
 
@@ -70,12 +70,12 @@ async function runAgentLoop(newRecord, existingRecord) {
 
     // fallback if AI fails
     if (impactResult.error) {
-      console.warn("⚠️ Falling back to rule-based (impact failed)");
+      console.warn("Falling back to rule-based (impact failed)");
       return processRecordWorkflow(enrichedRecord, existingRecord);
     }
 
     // ─────────────────────────────────────────────
-    // 🧠 STEP 5: THINK → Decision making
+    // STEP 5: THINK → Decision making
     // ─────────────────────────────────────────────
     const decisionResult = await callGLM("decisionAgent", {
       conflict: conflictResult,
@@ -84,12 +84,12 @@ async function runAgentLoop(newRecord, existingRecord) {
     });
 
     if (decisionResult.error) {
-      console.warn("⚠️ Falling back to rule-based (decision failed)");
+      console.warn("Falling back to rule-based (decision failed)");
       return processRecordWorkflow(enrichedRecord, existingRecord);
     }
 
     // ─────────────────────────────────────────────
-    // 🧠 FINAL OUTPUT (AI-driven)
+    // FINAL OUTPUT (AI-driven)
     // ─────────────────────────────────────────────
     return {
       conflict: true,
@@ -107,7 +107,7 @@ async function runAgentLoop(newRecord, existingRecord) {
     };
 
   } catch (error) {
-    console.error("❌ Agent Loop Error:", error);
+    console.error("Agent Loop Error:", error);
 
 
     // FULL FALLBACK (very important for reliability)
