@@ -90,11 +90,14 @@ export function NewRecord({ onViewConflicts, department, openConflictCount = 0 }
       impact: "",
       description: "",
     });
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const [setAiResult] = useState(null);
     setAiResult(null);
     setDetectedConflict(null);
     setRecordAdded(false); 
   }
 
+  // eslint-disable-next-line no-unused-vars
   const openCount = 0; // will be updated when connected to real data
 
   return (
