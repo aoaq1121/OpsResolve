@@ -143,12 +143,14 @@ export default function ConflictPopup({ conflict, role, onClose, onResolve }) {
         const records = Array.isArray(data) ? data : data.data || [];
         console.log("All records:", records);
         console.log("Looking for recordA:", conflict.recordA, "recordB:", conflict.recordB);
+        const normalize = (s) => (s || "").toLowerCase().replace(/[—–-]/g, "-").trim();
         const findRecord = (id) => {
           const found = records.find((r) =>
-            r.id === id || r.recordId === id ||
+            r.id === id ||
+            r.recordId === id ||
             r.id?.toLowerCase() === id?.toLowerCase() ||
             String(r.id) === String(id) ||
-            r.title === id || r.title?.toLowerCase() === id?.toLowerCase()
+            normalize(r.title) === normalize(id)
           );
           console.log(`findRecord(${id}):`, found);
           return found || { id };

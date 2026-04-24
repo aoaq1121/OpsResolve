@@ -7,6 +7,12 @@ export function TabNavigation({ tabs, activeTab, onTabChange, openConflictCount 
         </div>
       )}
 
+      {tabs.request && (
+        <div className={`tab ${activeTab === "request" ? "active" : ""}`} onClick={() => onTabChange("request")}>
+          Request Machine
+        </div>
+      )}
+
       {tabs.conflicts && (
         <div
           className={`tab ${activeTab === "conflicts" ? "active" : ""}`}

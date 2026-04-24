@@ -9,6 +9,7 @@ export const DEPARTMENTS = ["Production", "Maintenance", "Logistics", "Quality C
 export function getVisibleTabs(role) {
   return {
     new: true,
+    request: true,
     conflicts: true,
     decisions: role === "manager",
     reviews: role === "manager",
