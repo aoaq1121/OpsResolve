@@ -42,6 +42,120 @@ app.patch('/api/records/:id/status', async (req, res) => {
   }
 });
 
+// ── Machines ─────────────────────────────────────────────────────────────────
+app.post('/api/machines', async (req, res) => {
+  try {
+    const machine = await stateManager.saveMachine(req.body);
+    res.status(201).json(machine);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/machines', async (req, res) => {
+  try {
+    const { department, type } = req.query;
+    let machines;
+    if (type) machines = await stateManager.getMachinesByType(type);
+    else if (department) machines = await stateManager.getMachinesByDepartment(department);
+    else machines = await stateManager.getAllMachines();
+    res.json(machines);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Check machine availability — must be before /api/machines/:id
+app.get('/api/machines/available', async (req, res) => {
+  try {
+    const { date, shift, type, department } = req.query;
+    if (!date || !shift) return res.status(400).json({ error: 'date and shift are required' });
+    const machines = await stateManager.getAvailableMachines({ date, shift, type, department });
+    res.json(machines);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch('/api/machines/:id/status', async (req, res) => {
+  try {
+    const { status } = req.body;
+    await stateManager.updateMachineStatus(req.params.id, status);
+    res.json({ success: true, status });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/machines/:id/book', async (req, res) => {
+  try {
+    const result = await stateManager.bookMachineSlot(req.params.id, req.body);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/machines/:id/release', async (req, res) => {
+  try {
+    const result = await stateManager.releaseMachineSlot(req.params.id, req.body);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── Work Orders ───────────────────────────────────────────────────────────────
+app.post('/api/work-orders', async (req, res) => {
+  try {
+    const workOrder = await stateManager.saveWorkOrder(req.body);
+    res.status(201).json(workOrder);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/work-orders', async (req, res) => {
+  try {
+    const { department } = req.query;
+    let workOrders;
+    if (department) workOrders = await stateManager.getWorkOrdersByDepartment(department);
+    else workOrders = await stateManager.getAllWorkOrders();
+    res.json(workOrders);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/work-orders/:id', async (req, res) => {
+  try {
+    const workOrder = await stateManager.getWorkOrderById(req.params.id);
+    if (!workOrder) return res.status(404).json({ error: 'Work order not found' });
+    res.json(workOrder);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch('/api/work-orders/:id/status', async (req, res) => {
+  try {
+    const { status } = req.body;
+    await stateManager.updateWorkOrderStatus(req.params.id, status);
+    res.json({ success: true, status });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/conflicts/all', async (req, res) => {
+  try {
+    const conflicts = await stateManager.getAllConflicts();
+    res.json(conflicts);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ── Conflicts ────────────────────────────────────────────────────────────────
 app.post('/api/conflicts', async (req, res) => {
   try {
@@ -80,7 +194,6 @@ app.get('/api/conflicts/:id', async (req, res) => {
   }
 });
 
-// ── NEW: Update conflict status (notified, scheduled, etc.) ──────────────────
 app.patch('/api/conflicts/:id/status', async (req, res) => {
   try {
     const { status } = req.body;
@@ -139,7 +252,15 @@ app.get('/api/reviews', async (req, res) => {
   }
 });
 
-// ── Statistics ───────────────────────────────────────────────────────────────
+// ── Performance ───────────────────────────────────────────────────────────────
+app.get('/api/performance', async (req, res) => {
+  try {
+    const stats = await stateManager.getPerformanceStats();
+    res.json(stats);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 app.get('/api/statistics', async (req, res) => {
   try {
     const stats = await stateManager.getStatistics();

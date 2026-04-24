@@ -1,17 +1,16 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect } from "react";
 import ConflictPopup from "./ConflictPopup";
 import { makeShortTitle } from "../utils/conflictUtils";
 
 const severityOrder = { High: 0, Medium: 1, Low: 2 };
 
-const statusConfig = {
-  active: { label: "Active - Pending Review", color: "#f59e0b", bg: "#fffbeb" },
-  pending: { label: "Pending review", color: "#94a3b8", bg: "#f1f5f9" },
-  notified: { label: "Notified", color: "#f59e0b", bg: "#fffbeb" },
-  scheduled: { label: "Meeting Scheduled", color: "#3b82f6", bg: "#eff6ff" },
-  accepted: { label: "Resolved", color: "#16a34a", bg: "#f0fdf4" },
-  resolved: { label: "Resolved", color: "#16a34a", bg: "#f0fdf4" },
-  overridden: { label: "Overridden", color: "#dc2626", bg: "#fef2f2" },
+const statusMeta = {
+  urgent:    { label: "Awaiting coordination", dot: "#ef4444", pulse: true },
+  notified:  { label: "All parties notified",  dot: "#f59e0b", pulse: false },
+  scheduled: { label: "Meeting scheduled",     dot: "#f59e0b", pulse: false },
+  progress:  { label: "Meeting scheduled",     dot: "#f59e0b", pulse: false },
+  pending:   { label: "Pending review",        dot: "#94a3b8", pulse: false },
+  resolved:  { label: "Resolved",              dot: "#22c55e", pulse: false },
 };
 
 function StatusBadge({ status }) {
@@ -42,20 +41,21 @@ function SeverityBadge({ severity }) {
 function resolveRecordId(value, records) {
   if (!value || value === "—") return value;
   if (/^record\d+$/i.test(value)) return value;
+  const normalize = (s) => (s || "").toLowerCase().replace(/[—–-]/g, "-").trim();
   const found = records.find((r) =>
-    r.title === value || r.title?.toLowerCase() === value?.toLowerCase()
+    normalize(r.title) === normalize(value)
   );
   return found?.id || value;
 }
 
-export default function ActiveConflicts({ role, department }) {
-  const [conflicts, setConflicts] = useState([]);
-  const [records, setRecords] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [selectedConflict, setSelectedConflict] = useState(null);
-  const [filter, setFilter] = useState("All");
-  const [search, setSearch] = useState("");
+export default function ActiveConflicts({ role, department, name }) {
+  const [conflicts, setConflicts]       = useState([]);
+  const [records, setRecords]           = useState([]);
+  const [loading, setLoading]           = useState(true);
+  const [error, setError]               = useState(null);
+  const [selected, setSelected]         = useState(null);
+  const [filter, setFilter]             = useState("All");
+  const [search, setSearch]             = useState("");
   const [showResolved, setShowResolved] = useState(false);
   const [actionMessage, setActionMessage] = useState(null);
 
@@ -64,7 +64,17 @@ export default function ActiveConflicts({ role, department }) {
   const isManager = role === "manager";
   const filters = ["All", "High", "Medium", "Low"];
 
-  const fetchRecords = useCallback(async () => {
+  useEffect(() => {
+    fetchAll();
+    const interval = setInterval(fetchAll, 5000);
+    return () => clearInterval(interval);
+  }, [showResolved]);
+
+  async function fetchAll() {
+    await Promise.all([fetchConflicts(), fetchRecords()]);
+  }
+
+  async function fetchRecords() {
     try {
       const res = await fetch("http://localhost:3001/api/records");
       const data = await res.json();
@@ -76,7 +86,10 @@ export default function ActiveConflicts({ role, department }) {
 
   const fetchConflicts = useCallback(async () => {
     try {
-      const response = await fetch("http://localhost:3001/api/conflicts");
+      const url = showResolved 
+        ? "http://localhost:3001/api/conflicts/all"
+        : "http://localhost:3001/api/conflicts";
+      const response = await fetch(url);
       const data = await response.json();
       const raw = Array.isArray(data) ? data : data.data || [];
       
@@ -87,8 +100,13 @@ export default function ActiveConflicts({ role, department }) {
         conflictReason: c.conflictReason || c.issue_summary || c.title || "Conflict detected",
         severity: c.severity ? c.severity.charAt(0).toUpperCase() + c.severity.slice(1) : "Medium",
         departmentsInvolved: c.departmentsInvolved || [c.department_a, c.department_b].filter(Boolean) || [c.department].filter(Boolean),
-        status: c.status || "active",
-        confidence: c.confidence ? (c.confidence <= 1 ? Math.round(c.confidence * 100) : c.confidence) : 80,
+        status: c.status === "active" ? "open" : c.status,
+        statusType: c.status === "active" ? "urgent" 
+          : c.status === "notified" ? "notified"
+          : c.status === "scheduled" ? "scheduled"
+          : c.status === "overridden" || c.status === "resolved" ? "resolved" 
+          : "pending",
+        confidence: c.confidence ? (c.confidence <= 1 ? Math.round(c.confidence * 100) : c.confidence) : 0,
         reportedAt: c.first_detected ? new Date(c.first_detected).toLocaleString() : "—",
         recordA: c.records_involved?.[0] || c.recordA || "—",
         recordB: c.records_involved?.[1] || c.recordB || "—",
@@ -293,8 +311,18 @@ export default function ActiveConflicts({ role, department }) {
     Low: filteredConflicts.filter((c) => c.severity === "Low").length,
   }), [filteredConflicts]);
 
-  const openCount = openConflicts.length;
-  const resolvedCount = resolvedConflictsList.length;
+  function handleResolve(conflictId, decision) {
+    setConflicts((prev) =>
+      prev.map((c) => {
+        if (c.conflictId !== conflictId) return c;
+        const status = decision.status || "resolved";
+        const statusType = status === "notified" ? "notified"
+          : status === "scheduled" ? "scheduled"
+          : "resolved";
+        return { ...c, status, statusType, decision };
+      })
+    );
+  }
 
   return (
     <div className="tab-content">
@@ -472,34 +500,7 @@ export default function ActiveConflicts({ role, department }) {
                   <span style={{ fontSize: "11px", color: "#94a3b8", fontFamily: "monospace" }}>{conflict.conflictId}</span>
                 </div>
 
-                {/* Meeting Info if scheduled */}
-                {conflict.meetingDate && conflict.status === "scheduled" && (
-                  <div style={{ 
-                    background: "#eff6ff", 
-                    padding: "8px 12px", 
-                    borderRadius: "8px", 
-                    marginBottom: "12px",
-                    fontSize: "12px",
-                    color: "#1e40af"
-                  }}>
-                    📅 Meeting scheduled: {conflict.meetingDate} at {conflict.meetingTime}
-                  </div>
-                )}
-
-                {/* Conflict Title */}
-                <h3 style={{ margin: "0 0 10px 0", fontSize: "16px", fontWeight: "600" }}>
-                  {makeShortTitle(conflict.conflictReason, conflict.departmentsInvolved)}
-                </h3>
-
-                {/* Record IDs */}
-                <div style={{ fontSize: "12px", color: "#64748b", marginBottom: "10px", display: "flex", gap: "8px", alignItems: "center" }}>
-                  <span style={{ background: "#f1f5f9", padding: "2px 8px", borderRadius: "5px" }}>{displayA}</span>
-                  <span>↔</span>
-                  <span style={{ background: "#f1f5f9", padding: "2px 8px", borderRadius: "5px" }}>{displayB}</span>
-                </div>
-
-                {/* Departments */}
-                <div style={{ display: "flex", gap: "6px", marginBottom: "12px", flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
                   {(conflict.departmentsInvolved || []).map((d) => (
                     <span key={d} className="dept-tag" style={d === department ? { background: "#eff6ff", color: "#1d4ed8", borderColor: "#bfdbfe", fontWeight: 700 } : {}}>
                       {d}
@@ -605,11 +606,10 @@ export default function ActiveConflicts({ role, department }) {
         <ConflictPopup
           conflict={selectedConflict}
           role={role}
-          onClose={() => setSelectedConflict(null)}
-          onResolve={() => {
-            fetchConflicts();
-            setSelectedConflict(null);
-          }}
+          name={name}
+          department={department}
+          onClose={() => setSelected(null)}
+          onResolve={handleResolve}
         />
       )}
 

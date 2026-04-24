@@ -1,6 +1,7 @@
 import { Topbar } from "./Topbar";
 import { TabNavigation } from "./TabNavigation";
 import { NewRecord } from "./NewRecord";
+import { RequestMachine } from "./RequestMachine";
 import ActiveConflicts from "./ActiveConflicts";
 
 export function Workspace({
@@ -28,6 +29,14 @@ export function Workspace({
           onViewConflicts={() => onTabChange("conflicts")}
           department={department}
           openConflictCount={openConflictCount}
+        />
+      )}
+
+      {activeTab === "request" && (
+        <RequestMachine
+          department={department}
+          role={role}
+          onViewConflicts={() => onTabChange("conflicts")}
         />
       )}
 

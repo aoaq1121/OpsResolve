@@ -5,8 +5,8 @@ import { Workspace } from "./components/Workspace";
 import { useState, useEffect } from "react";
 
 export default function App() {
-  const [screen, setScreen]   = useState("entry");
-  const [role, setRole]       = useState("");
+  const [screen, setScreen]         = useState("entry");
+  const [role, setRole]             = useState("");
   const [department, setDepartment] = useState("");
   const [activeTab, setActiveTab]   = useState("new");
   const [openConflictCount, setOpenConflictCount] = useState(0);
@@ -15,7 +15,6 @@ export default function App() {
 
   useEffect(() => {
     if (!department) return;
-
     function load() {
       fetch("http://localhost:3001/api/conflicts")
         .then((res) => res.json())
@@ -30,7 +29,6 @@ export default function App() {
         })
         .catch(() => setOpenConflictCount(0));
     }
-
     load();
     const interval = setInterval(load, 5000);
     return () => clearInterval(interval);

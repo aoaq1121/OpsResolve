@@ -7,6 +7,12 @@ export function TabNavigation({ tabs, activeTab, onTabChange, openConflictCount 
         </div>
       )}
 
+      {tabs.request && (
+        <div className={`tab ${activeTab === "request" ? "active" : ""}`} onClick={() => onTabChange("request")}>
+          Request Machine
+        </div>
+      )}
+
       {tabs.conflicts && (
         <div
           className={`tab ${activeTab === "conflicts" ? "active" : ""}`}
@@ -17,21 +23,12 @@ export function TabNavigation({ tabs, activeTab, onTabChange, openConflictCount 
         </div>
       )}
 
-      {tabs.decisions && (
+      {tabs.performance && (
         <div
-          className={`tab ${activeTab === "decisions" ? "active" : ""}`}
-          onClick={() => onTabChange("decisions")}
+          className={`tab ${activeTab === "performance" ? "active" : ""}`}
+          onClick={() => onTabChange("performance")}
         >
-          Decision Review
-        </div>
-      )}
-
-      {tabs.reviews && (
-        <div
-          className={`tab ${activeTab === "reviews" ? "active" : ""}`}
-          onClick={() => onTabChange("reviews")}
-        >
-          Review & Approval
+          Performance
         </div>
       )}
     </div>

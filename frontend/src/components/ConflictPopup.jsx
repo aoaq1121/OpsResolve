@@ -30,9 +30,12 @@ function RecordCard({ recordId, record, department }) {
   const c = deptColors[department] || { bg: "#f8fafc", text: "#475569", border: "#e2e8f0" };
   const displayId = record?.id || record?.recordId || recordId;
   const title = record?.title || null;
-  const location = record?.location || null;
-  const equipment = record?.equipment || null;
+  const location = record?.location || record?.bay || null;
+  const equipment = record?.equipment || record?.equipmentId || null;
   const shift = record?.shift || null;
+  const date = record?.date || null;
+  const processType = record?.processType || record?.maintenanceType || record?.inspectionType || record?.requestType || null;
+  const workOrderNo = record?.workOrderNo || record?.batchRef || record?.poNumber || null;
 
   return (
     <div style={{ flex: 1, background: "#f8fafc", border: "1.5px solid #e2e8f0", borderRadius: 12, padding: "14px 16px" }}>
@@ -44,15 +47,18 @@ function RecordCard({ recordId, record, department }) {
       </div>
       {title && <div style={{ fontSize: 14, fontWeight: 700, color: "#0f1923", marginBottom: 8, textAlign: "left" }}>{title}</div>}
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {workOrderNo && <div style={{ fontSize: 13, color: "#475569", textAlign: "left" }}><span style={{ fontWeight: 600, color: "#64748b" }}>Ref: </span>{workOrderNo}</div>}
+        {processType && <div style={{ fontSize: 13, color: "#475569", textAlign: "left" }}><span style={{ fontWeight: 600, color: "#64748b" }}>Type: </span>{processType}</div>}
         {location && <div style={{ fontSize: 13, color: "#475569", textAlign: "left" }}><span style={{ fontWeight: 600, color: "#64748b" }}>Location: </span>{location}</div>}
         {equipment && <div style={{ fontSize: 13, color: "#475569", textAlign: "left" }}><span style={{ fontWeight: 600, color: "#64748b" }}>Equipment: </span>{equipment}</div>}
+        {date && <div style={{ fontSize: 13, color: "#475569", textAlign: "left" }}><span style={{ fontWeight: 600, color: "#64748b" }}>Date: </span>{date}</div>}
         {shift && <div style={{ fontSize: 13, color: "#475569", textAlign: "left" }}><span style={{ fontWeight: 600, color: "#64748b" }}>Shift: </span>{shift}</div>}
       </div>
     </div>
   );
 }
 
-export default function ConflictPopup({ conflict, role, onClose, onResolve }) {
+export default function ConflictPopup({ conflict, role, name, department, onClose, onResolve }) {
   const [toast, setToast]               = useState(null);
   const [showOverride, setShowOverride] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
@@ -62,8 +68,8 @@ export default function ConflictPopup({ conflict, role, onClose, onResolve }) {
   const [recordBData, setRecordBData]   = useState(null);
 
   const isReadOnly       = role === "data_entry";
-  const isSupervisorPlus = role === "supervisor" || role === "manager";
-  const isManager        = role === "manager";
+  const isSupervisorPlus = role === "supervisor" || role === "manager" || role === "director";
+  const isManager        = role === "manager" || role === "director";
   const isResolved       = localStatus === "resolved" || localStatus === "overridden";
 
   const conflictReason = conflict.conflictReason || conflict.issue_summary || "Conflict detected";
@@ -86,12 +92,14 @@ export default function ConflictPopup({ conflict, role, onClose, onResolve }) {
         const records = Array.isArray(data) ? data : data.data || [];
         console.log("All records:", records);
         console.log("Looking for recordA:", conflict.recordA, "recordB:", conflict.recordB);
+        const normalize = (s) => (s || "").toLowerCase().replace(/[—–-]/g, "-").trim();
         const findRecord = (id) => {
           const found = records.find((r) =>
-            r.id === id || r.recordId === id ||
+            r.id === id ||
+            r.recordId === id ||
             r.id?.toLowerCase() === id?.toLowerCase() ||
             String(r.id) === String(id) ||
-            r.title === id || r.title?.toLowerCase() === id?.toLowerCase()
+            normalize(r.title) === normalize(id)
           );
           console.log(`findRecord(${id}):`, found);
           return found || { id };
@@ -116,17 +124,19 @@ export default function ConflictPopup({ conflict, role, onClose, onResolve }) {
   async function notify() {
     setToast("All parties notified");
     try { await fetch(`http://localhost:3001/api/conflicts/${conflict.conflictId}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "notified" }) }); } catch (e) { console.error(e); }
+    onResolve && onResolve(conflict.conflictId, { status: "notified" });
   }
 
   async function schedule() {
     setToast("Meeting scheduled");
     try { await fetch(`http://localhost:3001/api/conflicts/${conflict.conflictId}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "scheduled" }) }); } catch (e) { console.error(e); }
+    onResolve && onResolve(conflict.conflictId, { status: "scheduled" });
   }
 
   async function accept() {
     setLocalStatus("resolved");
     setToast("Recommendation accepted — conflict resolved");
-    try { await fetch("http://localhost:3001/api/decisions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ conflictId: conflict.conflictId, managerAction: "accepted", finalNote: "Accepted AI recommendation.", timestamp: new Date().toISOString() }) }); } catch (e) { console.error(e); }
+    try { await fetch("http://localhost:3001/api/decisions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ conflictId: conflict.conflictId, managerAction: "accepted", finalNote: "Accepted AI recommendation.", managerName: name, department, timestamp: new Date().toISOString() }) }); } catch (e) { console.error(e); }
     onResolve && onResolve(conflict.conflictId, { managerAction: "accepted", finalNote: "Accepted AI recommendation." });
     setTimeout(onClose, 1800);
   }
@@ -136,7 +146,7 @@ export default function ConflictPopup({ conflict, role, onClose, onResolve }) {
     setLocalStatus("overridden");
     setShowOverride(false);
     setToast("Override logged — conflict resolved");
-    try { await fetch("http://localhost:3001/api/decisions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ conflictId: conflict.conflictId, managerAction: "overridden", finalNote: finalNote || overrideReason, overrideReason, timestamp: new Date().toISOString() }) }); } catch (e) { console.error(e); }
+    try { await fetch("http://localhost:3001/api/decisions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ conflictId: conflict.conflictId, managerAction: "overridden", finalNote: finalNote || overrideReason, overrideReason, managerName: name, department, timestamp: new Date().toISOString() }) }); } catch (e) { console.error(e); }
     onResolve && onResolve(conflict.conflictId, { managerAction: "overridden", finalNote: finalNote || overrideReason });
     setTimeout(onClose, 1800);
   }
@@ -210,9 +220,9 @@ export default function ConflictPopup({ conflict, role, onClose, onResolve }) {
                 {summaryPoints.map((point, i) => {
                   const labels = ["What happened", "Why it conflicts", "Risk", "Impact", "Note"];
                   return (
-                    <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "#16a34a", minWidth: 110, paddingTop: 1, flexShrink: 0, textAlign: "left" }}>{labels[i] || "Detail"}:</span>
-                      <span style={{ fontSize: 13, color: "#166534", lineHeight: 1.6, textAlign: "left" }}>{point}</span>
+                    <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#16a34a", minWidth: 120, flexShrink: 0, textAlign: "left" }}>{labels[i] || "Detail"}:</span>
+                      <span style={{ fontSize: 13, color: "#166534", lineHeight: 1.6, textAlign: "left", flex: 1 }}>{point}</span>
                     </div>
                   );
                 })}
@@ -224,8 +234,8 @@ export default function ConflictPopup({ conflict, role, onClose, onResolve }) {
 
           <p className="section-label">Recommendation</p>
           <div style={{ background: "#eff6ff", borderRadius: 12, padding: "14px 16px", border: "1px solid #bfdbfe", marginBottom: 16 }}>
-            <div style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 12 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: "#2563eb", minWidth: 62, paddingTop: 1 }}>Action:</span>
+            <div style={{ display: "flex", gap: 10, alignItems: "baseline", marginBottom: 12 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#2563eb", minWidth: 62, flexShrink: 0 }}>Action:</span>
               <span style={{ fontSize: 13, color: "#1e3a8a", lineHeight: 1.6, textAlign: "left" }}>
                 {topRecommendation || "Coordinate with affected departments to resolve the scheduling conflict."}
               </span>
