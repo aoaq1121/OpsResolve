@@ -147,6 +147,15 @@ app.patch('/api/work-orders/:id/status', async (req, res) => {
   }
 });
 
+app.get('/api/conflicts/all', async (req, res) => {
+  try {
+    const conflicts = await stateManager.getAllConflicts();
+    res.json(conflicts);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ── Conflicts ────────────────────────────────────────────────────────────────
 app.post('/api/conflicts', async (req, res) => {
   try {
@@ -243,7 +252,15 @@ app.get('/api/reviews', async (req, res) => {
   }
 });
 
-// ── Statistics ───────────────────────────────────────────────────────────────
+// ── Performance ───────────────────────────────────────────────────────────────
+app.get('/api/performance', async (req, res) => {
+  try {
+    const stats = await stateManager.getPerformanceStats();
+    res.json(stats);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 app.get('/api/statistics', async (req, res) => {
   try {
     const stats = await stateManager.getStatistics();

@@ -253,6 +253,11 @@ class StateManager {
     return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
   }
 
+  async getAllConflicts() {
+    const snapshot = await db.collection('conflicts').get();
+    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  }
+
   async getConflictById(id) {
     const snapshot = await db.collection('conflicts').where('conflictId', '==', id).get();
     if (snapshot.empty) return null;
@@ -265,9 +270,20 @@ class StateManager {
   }
 
   async updateConflictStatus(conflictId, status) {
+    // Try matching by conflictId field first
     const snapshot = await db.collection('conflicts').where('conflictId', '==', conflictId).get();
-    if (snapshot.empty) throw new Error('Conflict not found');
-    await snapshot.docs[0].ref.update({ status });
+    if (!snapshot.empty) {
+      await snapshot.docs[0].ref.update({ status });
+      return;
+    }
+    // Fall back to doc ID
+    const docRef = db.collection('conflicts').doc(conflictId);
+    const doc = await docRef.get();
+    if (doc.exists) {
+      await docRef.update({ status });
+      return;
+    }
+    throw new Error('Conflict not found');
   }
 
   // ── Decisions ────────────────────────────────────────────────────────────────
@@ -281,6 +297,8 @@ class StateManager {
     const decision = {
       ...decisionData,
       decisionId: customId,
+      managerName: decisionData.managerName || null,
+      department: decisionData.department || null,
       timestamp: new Date().toLocaleString("en-MY", { timeZone: "Asia/Kuala_Lumpur" }),
     };
     await db.collection('decisions').doc(customId).set(decision);
@@ -346,6 +364,86 @@ class StateManager {
   async getAllReviews() {
     const snapshot = await db.collection('reviews').get();
     return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  }
+
+  // ── Performance Stats ─────────────────────────────────────────────────────────
+
+  async getPerformanceStats() {
+    const [conflictsSnap, decisionsSnap] = await Promise.all([
+      db.collection('conflicts').get(),
+      db.collection('decisions').get(),
+    ]);
+
+    const conflicts = conflictsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const decisions = decisionsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    const DEPARTMENTS = ['Production', 'Maintenance', 'Logistics', 'Quality Control'];
+
+    const deptStats = DEPARTMENTS.map(dept => {
+      const deptConflicts = conflicts.filter(c =>
+        (c.departmentsInvolved || []).includes(dept)
+      );
+      const deptDecisions = decisions.filter(d => d.department === dept);
+      const resolved = deptConflicts.filter(c => c.status === 'resolved' || c.status === 'overridden').length;
+      const total = deptConflicts.length;
+      const accepted = deptDecisions.filter(d => d.managerAction === 'accepted').length;
+      const overridden = deptDecisions.filter(d => d.managerAction === 'overridden').length;
+
+      // Calculate avg resolution time in hours
+      let avgResolutionHours = null;
+      const resolvedWithTime = deptConflicts.filter(c =>
+        (c.status === 'resolved' || c.status === 'overridden') &&
+        c.first_detected && c.last_detected
+      );
+      if (resolvedWithTime.length > 0) {
+        const totalHours = resolvedWithTime.reduce((sum, c) => {
+          const diff = new Date(c.last_detected) - new Date(c.first_detected);
+          return sum + diff / (1000 * 60 * 60);
+        }, 0);
+        avgResolutionHours = Math.round((totalHours / resolvedWithTime.length) * 10) / 10;
+      }
+
+      return {
+        department: dept,
+        totalConflicts: total,
+        resolved,
+        open: total - resolved,
+        resolutionRate: total > 0 ? Math.round((resolved / total) * 100) : 0,
+        accepted,
+        overridden,
+        avgResolutionHours,
+      };
+    });
+
+    // Manager track records
+    const managerStats = {};
+    decisions.forEach(d => {
+      if (!d.managerName) return;
+      const key = d.managerName;
+      if (!managerStats[key]) {
+        managerStats[key] = {
+          name: d.managerName,
+          department: d.department,
+          totalDecisions: 0,
+          accepted: 0,
+          overridden: 0,
+          escalated: 0,
+          lastActive: null,
+        };
+      }
+      managerStats[key].totalDecisions++;
+      if (d.managerAction === 'accepted') managerStats[key].accepted++;
+      if (d.managerAction === 'overridden') managerStats[key].overridden++;
+      if (d.managerAction === 'escalated') managerStats[key].escalated++;
+      if (!managerStats[key].lastActive || d.timestamp > managerStats[key].lastActive) {
+        managerStats[key].lastActive = d.timestamp;
+      }
+    });
+
+    return {
+      departments: deptStats,
+      managers: Object.values(managerStats),
+    };
   }
 
   // ── Statistics ───────────────────────────────────────────────────────────────
@@ -443,6 +541,152 @@ class StateManager {
 
     for (const record of mockRecords) {
       await this.saveRecord(record);
+    }
+
+    // Seed records that match the mock conflicts
+    const conflictRecords = [
+      // conflict_t1 records
+      { id: 'record_prod_1', department: 'Production', category: 'Production', title: 'Production Work Order WO-2210', workOrderNo: 'WO-2210', productName: 'Steel Panel A-Series', processType: 'Sanding', location: 'Line A', shift: 'Morning', date: '2026-04-25', duration: '4–8 hours', priority: 'High', equipment: 'Machine M-07', status: 'active' },
+      { id: 'record_maint_1', department: 'Maintenance', category: 'Maintenance', title: 'Machine M-07 Preventive Maintenance', equipmentId: 'M-07', maintenanceType: 'Preventive', location: 'Line A', shift: 'Morning', date: '2026-04-25', duration: '4–8 hours', priority: 'High', equipment: 'Machine M-07', estimatedDowntime: '4–8 hours', technician: 'Ahmad bin Ali', status: 'active' },
+
+      // conflict_t2 records
+      { id: 'record_log_1', department: 'Logistics', category: 'Logistics', title: 'Inbound Delivery Batch RM-0426', requestType: 'Inbound Delivery', vendorName: 'ABC Steel Supplies Sdn Bhd', poNumber: 'PO-20260426', materialDesc: 'Steel sheet panels', quantity: '300 kg', bay: 'Bay 3', vehicleRequired: 'Forklift', shift: 'Morning', date: '2026-04-26', priority: 'Normal', status: 'active' },
+      { id: 'record_qc_1', department: 'Quality Control', category: 'Quality Control', title: 'Incoming Inspection Batch RM-0426', inspectionType: 'Incoming Material', batchRef: 'Batch RM-0426', productName: 'Steel sheet panels', qcStation: 'QC Station 1', shift: 'Morning', date: '2026-04-26', duration: '1–2 hours', priority: 'Normal', status: 'active' },
+
+      // conflict_r1 records
+      { id: 'record_prod_2', department: 'Production', category: 'Production', title: 'Work Order WO-2211 — Bracket B-Type Welding', workOrderNo: 'WO-2211', productName: 'Bracket B-Type', processType: 'Welding', location: 'Bay 1', shift: 'Afternoon', date: '2026-04-25', duration: '4–8 hours', priority: 'High', equipment: 'Welding Machine W-01', targetQuantity: '150', unit: 'pcs', status: 'active' },
+      { id: 'record_prod_3', department: 'Production', category: 'Production', title: 'Work Order WO-2212 — Frame Assembly Welding', workOrderNo: 'WO-2212', productName: 'Aluminium Frame Assembly', processType: 'Welding', location: 'Bay 1', shift: 'Afternoon', date: '2026-04-25', duration: '2–4 hours', priority: 'Normal', equipment: 'Welding Machine W-01', targetQuantity: '80', unit: 'pcs', status: 'active' },
+
+      // conflict_r2 records
+      { id: 'record_log_2', department: 'Logistics', category: 'Logistics', title: 'Outbound Shipment — Customer Order CO-0425', requestType: 'Outbound Shipment', vendorName: 'XYZ Trading Sdn Bhd', poNumber: 'DO-20260426', materialDesc: 'Finished bracket units', quantity: '200 pcs', bay: 'Loading Dock A', vehicleRequired: 'Forklift', shift: 'Morning', date: '2026-04-26', priority: 'High', equipment: 'Forklift FL-01', status: 'active' },
+      { id: 'record_prod_4', department: 'Production', category: 'Production', title: 'Material Transfer to Line B — Batch RM-0425', workOrderNo: 'WO-2213', productName: 'Raw Steel Rods', processType: 'Assembly', location: 'Line B', shift: 'Morning', date: '2026-04-26', duration: 'Less than 1 hour', priority: 'Normal', equipment: 'Forklift FL-01', status: 'active' },
+
+      // conflict_d1 records
+      { id: 'record_log_3', department: 'Logistics', category: 'Logistics', title: 'Raw Material Delivery — Batch RM-2204', requestType: 'Inbound Delivery', vendorName: 'Steel Corp Sdn Bhd', poNumber: 'PO-20260425', materialDesc: 'Raw material batch RM-2204', quantity: '500 kg', bay: 'Bay 3', vehicleRequired: 'Forklift', shift: 'Morning', date: '2026-04-25', priority: 'High', status: 'active' },
+      { id: 'record_qc_2', department: 'Quality Control', category: 'Quality Control', title: 'Incoming Inspection — Batch RM-2204', inspectionType: 'Incoming Material', batchRef: 'Batch RM-2204', productName: 'Raw steel rods', qcStation: 'QC Station 1', shift: 'Morning', date: '2026-04-25', duration: '1–2 hours', priority: 'High', status: 'active' },
+
+      // conflict_d2 records
+      { id: 'record_prod_5', department: 'Production', category: 'Production', title: 'Production Run WO-2210 — Steel Panel A-Series', workOrderNo: 'WO-2210', productName: 'Steel Panel A-Series', processType: 'Sanding', location: 'Line A', shift: 'Morning', date: '2026-04-25', duration: '4–8 hours', priority: 'High', equipment: 'Machine M-07', status: 'active' },
+      { id: 'record_qc_3', department: 'Quality Control', category: 'Quality Control', title: 'Final Inspection WO-2210 Output', inspectionType: 'Final Inspection', batchRef: 'WO-2210', productName: 'Steel Panel A-Series', qcStation: 'QC Station 2', shift: 'Afternoon', date: '2026-04-25', duration: '2–4 hours', priority: 'High', status: 'active' },
+    ];
+
+    for (const record of conflictRecords) {
+      await db.collection('records').doc(record.id).set({ ...record, timestamp: new Date().toISOString() });
+    }
+    const mockConflicts = [
+      // ── Time-based clash 1: Production vs Maintenance ──
+      {
+        conflictId: 'conflict_t1',
+        recordA: 'record_prod_1',
+        recordB: 'record_maint_1',
+        departmentsInvolved: ['Production', 'Maintenance'],
+        severity: 'High',
+        status: 'active',
+        statusType: 'urgent',
+        confidence: 88,
+        conflictReason: 'Machine M-07 scheduled for preventive maintenance on April 25 Morning shift conflicts with Production work order WO-2210 scheduled on the same date and shift.',
+        issue_summary: 'Both Production and Maintenance have scheduled activities on Machine M-07 during the same Morning shift on April 25, 2026. The preventive maintenance requires the machine to be fully offline, while the production work order requires it to be running at full capacity. The same shift overlap means neither can proceed without disrupting the other.',
+        ai_recommendation: 'Reschedule the preventive maintenance to the Night shift on April 25 or defer to April 26 Morning shift to allow the production run to complete on schedule.',
+        first_detected: new Date('2026-04-25T06:00:00').toISOString(),
+        last_detected: new Date('2026-04-25T06:00:00').toISOString(),
+        count: 1,
+      },
+
+      // ── Time-based clash 2: Logistics vs Quality Control ──
+      {
+        conflictId: 'conflict_t2',
+        recordA: 'record_log_1',
+        recordB: 'record_qc_1',
+        departmentsInvolved: ['Logistics', 'Quality Control'],
+        severity: 'Medium',
+        status: 'active',
+        statusType: 'urgent',
+        confidence: 74,
+        conflictReason: 'Logistics inbound delivery and QC incoming inspection both scheduled at Bay 3 during the same Morning shift on April 26, creating a scheduling overlap.',
+        issue_summary: 'Logistics has scheduled an inbound delivery of Batch RM-0426 at Bay 3 on April 26 Morning shift. Quality Control has also scheduled an incoming material inspection at the same bay and shift. Bay 3 cannot accommodate both operations simultaneously as the delivery requires forklift access while inspection requires the area to be clear. The simultaneous scheduling creates a conflict over the same space and time window.',
+        ai_recommendation: 'Stagger the two activities — allow Logistics to complete the delivery in the first hour of the Morning shift, then Quality Control begins inspection in the second hour.',
+        first_detected: new Date('2026-04-25T08:00:00').toISOString(),
+        last_detected: new Date('2026-04-25T08:00:00').toISOString(),
+        count: 1,
+      },
+
+      // ── Resource-based clash 1: Production vs Production ──
+      {
+        conflictId: 'conflict_r1',
+        recordA: 'record_prod_2',
+        recordB: 'record_prod_3',
+        departmentsInvolved: ['Production', 'Maintenance'],
+        severity: 'High',
+        status: 'active',
+        statusType: 'urgent',
+        confidence: 92,
+        conflictReason: 'Welding Machine W-01 at Bay 1 is requested by two separate work orders — WO-2211 and WO-2212 — for the same Afternoon shift on April 25.',
+        issue_summary: 'Two production work orders both require Welding Machine W-01 at Bay 1 during the Afternoon shift on April 25. The machine can only run one job at a time. WO-2211 requires 4 hours of welding for Bracket B-Type and WO-2212 requires 3 hours for Frame Assembly. Total demand is 7 hours but only one 8-hour shift is available and the machine setup between jobs takes 45 minutes. Running both in sequence is not feasible within the same shift.',
+        ai_recommendation: 'Prioritise WO-2211 for Afternoon shift on April 25. Reschedule WO-2212 to Morning shift on April 26 to ensure both work orders are completed without quality compromise.',
+        first_detected: new Date('2026-04-25T09:00:00').toISOString(),
+        last_detected: new Date('2026-04-25T09:00:00').toISOString(),
+        count: 2,
+      },
+
+      // ── Resource-based clash 2: Logistics vs Production ──
+      {
+        conflictId: 'conflict_r2',
+        recordA: 'record_log_2',
+        recordB: 'record_prod_4',
+        departmentsInvolved: ['Logistics', 'Production'],
+        severity: 'Medium',
+        status: 'active',
+        statusType: 'urgent',
+        confidence: 79,
+        conflictReason: 'Forklift FL-01 is required simultaneously by Logistics for an outbound shipment and by Production for moving raw materials to Line B during the same Morning shift.',
+        issue_summary: 'Forklift FL-01 has been requested by both Logistics for an outbound shipment at Loading Dock A and by Production for internal material transfer to Line B. Both requests are for the Morning shift on April 26. The forklift cannot be in two locations at the same time. The same equipment and same manpower are needed simultaneously, creating a direct resource conflict.',
+        ai_recommendation: 'Assign Forklift FL-01 to Production for the first 2 hours of Morning shift for material transfer, then hand off to Logistics for the outbound shipment. Alternatively, deploy Forklift FL-02 for the Logistics task if available.',
+        first_detected: new Date('2026-04-25T10:00:00').toISOString(),
+        last_detected: new Date('2026-04-25T10:00:00').toISOString(),
+        count: 1,
+      },
+
+      // ── Dependency-based clash 1: Logistics → Quality Control → Production ──
+      {
+        conflictId: 'conflict_d1',
+        recordA: 'record_log_3',
+        recordB: 'record_qc_2',
+        departmentsInvolved: ['Logistics', 'Quality Control'],
+        severity: 'High',
+        status: 'active',
+        statusType: 'urgent',
+        confidence: 85,
+        conflictReason: 'QC incoming inspection for Batch RM-2204 depends on the upstream Logistics delivery being completed first, but the delivery is blocked due to vendor customs delay.',
+        issue_summary: 'The Quality Control inspection record for Batch RM-2204 is a downstream process that depends on the upstream Logistics delivery being fulfilled first. The Logistics delivery record is currently blocked — the vendor truck is held at customs with no confirmed ETA. The downstream QC inspection cannot proceed as the prerequisite delivery has not been fulfilled. This creates a sequential dependency conflict that will cascade into the production schedule if not resolved urgently.',
+        ai_recommendation: 'Coordinate with Logistics to get an ETA from the vendor. If delay exceeds 2 hours, reschedule the QC inspection slot and notify Production to adjust Line B startup sequence. Consider sourcing from buffer stock as a contingency.',
+        first_detected: new Date('2026-04-25T07:00:00').toISOString(),
+        last_detected: new Date('2026-04-25T07:00:00').toISOString(),
+        count: 1,
+      },
+
+      // ── Dependency-based clash 2: Production → Quality Control ──
+      {
+        conflictId: 'conflict_d2',
+        recordA: 'record_prod_5',
+        recordB: 'record_qc_3',
+        departmentsInvolved: ['Production', 'Quality Control'],
+        severity: 'Medium',
+        status: 'active',
+        statusType: 'urgent',
+        confidence: 81,
+        conflictReason: 'Final QC inspection for WO-2210 depends on the production run being completed, but Production has flagged a machine breakdown mid-run, blocking the downstream QC sequence.',
+        issue_summary: 'Quality Control has a final inspection scheduled for WO-2210 output which requires the production run to be completed first as a prerequisite. However, Production has reported a breakdown on Machine M-07 mid-run, and the work order cannot be completed on schedule. The downstream QC inspection is now blocked and cannot proceed until the upstream production issue is resolved. If the breakdown extends beyond 4 hours, the shipment deadline for this batch will be missed.',
+        ai_recommendation: 'Maintenance should prioritise Machine M-07 repair. QC should be notified to hold the inspection slot. If repair exceeds 4 hours, escalate to manager to decide on partial shipment or deadline renegotiation with the client.',
+        first_detected: new Date('2026-04-25T11:00:00').toISOString(),
+        last_detected: new Date('2026-04-25T11:00:00').toISOString(),
+        count: 1,
+      },
+    ];
+
+    for (const conflict of mockConflicts) {
+      await db.collection('conflicts').doc(conflict.conflictId).set({
+        ...conflict,
+      });
     }
 
     return { message: 'Demo data seeded successfully' };
