@@ -37,6 +37,173 @@ class StateManager {
     await snapshot.docs[0].ref.update({ status });
   }
 
+  // ── Machines ─────────────────────────────────────────────────────────────────
+
+  async getMachinesCount() {
+    const snapshot = await db.collection('machines').get();
+    return snapshot.size;
+  }
+
+  async saveMachine(machineData) {
+    const count = await this.getMachinesCount();
+    const customId = `machine${String(count + 1).padStart(3, '0')}`;
+    const machine = {
+      ...machineData,
+      id: customId,
+      status: machineData.status || 'available',
+      scheduledSlots: machineData.scheduledSlots || [],
+      createdAt: new Date().toISOString(),
+    };
+    await db.collection('machines').doc(customId).set(machine);
+    return { id: customId, ...machine };
+  }
+
+  async getAllMachines() {
+    const snapshot = await db.collection('machines').get();
+    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  }
+
+  async getMachinesByDepartment(department) {
+    const snapshot = await db.collection('machines')
+      .where('department', '==', department)
+      .get();
+    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  }
+
+  async getMachinesByType(type) {
+    const snapshot = await db.collection('machines')
+      .where('type', '==', type)
+      .get();
+    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  }
+
+  // Check which machines are available for a given date + shift
+  async getAvailableMachines({ date, shift, type, department }) {
+    const snapshot = await db.collection('machines').get();
+    let machines = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+
+    // Filter by status
+    machines = machines.filter((m) => m.status !== 'under_maintenance');
+
+    // Filter by type (case-insensitive) or department
+    if (type) {
+      machines = machines.filter((m) => m.type?.toLowerCase() === type.toLowerCase());
+    } else if (department) {
+      machines = machines.filter((m) => m.department === department);
+    }
+
+    // Filter out machines already booked for this date + shift
+    return machines.filter((m) => {
+      const slots = m.scheduledSlots || [];
+      return !slots.some((s) => s.date === date && s.shift === shift);
+    });
+  }
+
+  async bookMachineSlot(machineId, { date, shift, workOrderId, department }) {
+    const snapshot = await db.collection('machines').where('id', '==', machineId).get();
+    if (snapshot.empty) throw new Error('Machine not found');
+
+    const doc = snapshot.docs[0];
+    const machine = doc.data();
+    const slots = machine.scheduledSlots || [];
+
+    // Check if already booked
+    const alreadyBooked = slots.some((s) => s.date === date && s.shift === shift);
+    if (alreadyBooked) throw new Error(`Machine ${machineId} is already booked for ${shift} shift on ${date}`);
+
+    slots.push({ date, shift, workOrderId, department, bookedAt: new Date().toISOString() });
+    await doc.ref.update({ scheduledSlots: slots });
+    return { machineId, date, shift, workOrderId };
+  }
+
+  async releaseMachineSlot(machineId, { date, shift }) {
+    const snapshot = await db.collection('machines').where('id', '==', machineId).get();
+    if (snapshot.empty) throw new Error('Machine not found');
+
+    const doc = snapshot.docs[0];
+    const machine = doc.data();
+    const slots = (machine.scheduledSlots || []).filter(
+      (s) => !(s.date === date && s.shift === shift)
+    );
+    await doc.ref.update({ scheduledSlots: slots });
+    return { success: true };
+  }
+
+  async updateMachineStatus(machineId, status) {
+    const snapshot = await db.collection('machines').where('id', '==', machineId).get();
+    if (snapshot.empty) throw new Error('Machine not found');
+    await snapshot.docs[0].ref.update({ status });
+  }
+
+  // ── Work Orders ───────────────────────────────────────────────────────────────
+
+  async getWorkOrdersCount() {
+    const snapshot = await db.collection('workOrders').get();
+    return snapshot.size;
+  }
+
+  async saveWorkOrder(workOrderData) {
+    const count = await this.getWorkOrdersCount();
+    const customId = `wo${String(count + 1).padStart(4, '0')}`;
+    const workOrder = {
+      ...workOrderData,
+      id: customId,
+      status: workOrderData.status || 'pending',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await db.collection('workOrders').doc(customId).set(workOrder);
+
+    // Also book the machine slot if machineId is provided
+    if (workOrderData.machineId && workOrderData.date && workOrderData.shift) {
+      try {
+        await this.bookMachineSlot(workOrderData.machineId, {
+          date: workOrderData.date,
+          shift: workOrderData.shift,
+          workOrderId: customId,
+          department: workOrderData.department,
+        });
+      } catch (err) {
+        console.warn('Could not book machine slot:', err.message);
+      }
+    }
+
+    // Also save to records collection for backward compatibility with conflict detection
+    await this.saveRecordWithId({
+      ...workOrderData,
+      title: workOrderData.workOrderNo || workOrderData.title || customId,
+      source: 'workOrder',
+      workOrderId: customId,
+    }, `record${(await this.getRecordsCount()) + 1}`);
+
+    return { id: customId, ...workOrder };
+  }
+
+  async getAllWorkOrders() {
+    const snapshot = await db.collection('workOrders').orderBy('createdAt', 'desc').get();
+    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  }
+
+  async getWorkOrdersByDepartment(department) {
+    const snapshot = await db.collection('workOrders')
+      .where('department', '==', department)
+      .orderBy('createdAt', 'desc')
+      .get();
+    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  }
+
+  async getWorkOrderById(id) {
+    const snapshot = await db.collection('workOrders').where('id', '==', id).get();
+    if (snapshot.empty) return null;
+    return { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
+  }
+
+  async updateWorkOrderStatus(id, status) {
+    const snapshot = await db.collection('workOrders').where('id', '==', id).get();
+    if (snapshot.empty) throw new Error('Work order not found');
+    await snapshot.docs[0].ref.update({ status, updatedAt: new Date().toISOString() });
+  }
+
   // ── Conflicts ────────────────────────────────────────────────────────────────
 
   async getConflictsCount() {
@@ -184,15 +351,18 @@ class StateManager {
   // ── Statistics ───────────────────────────────────────────────────────────────
 
   async getStatistics() {
-    const [records, conflicts, decisions] = await Promise.all([
+    const [records, conflicts, decisions, workOrders, machines] = await Promise.all([
       db.collection('records').get(),
       db.collection('conflicts').get(),
       db.collection('decisions').get(),
+      db.collection('workOrders').get(),
+      db.collection('machines').get(),
     ]);
 
     const resolvedConflicts = conflicts.docs.filter((d) => d.data().status === 'resolved').length;
     const acceptedDecisions = decisions.docs.filter((d) => d.data().managerAction === 'accepted').length;
     const overriddenDecisions = decisions.docs.filter((d) => d.data().managerAction === 'overridden').length;
+    const availableMachines = machines.docs.filter((d) => d.data().status === 'available').length;
 
     return {
       totalRecords: records.size,
@@ -202,6 +372,9 @@ class StateManager {
       totalDecisions: decisions.size,
       acceptedDecisions,
       overriddenDecisions,
+      totalWorkOrders: workOrders.size,
+      totalMachines: machines.size,
+      availableMachines,
     };
   }
 
@@ -224,9 +397,55 @@ class StateManager {
       first_detected: new Date().toISOString(),
       last_detected: new Date().toISOString(),
     };
-
     await db.collection('conflicts').add(demoConflict);
-    return { message: 'Demo data seeded' };
+
+    // Seed demo machines
+    const demoMachines = [
+      { name: 'Sanding Machine S-01', type: 'Sanding', location: 'Line A', department: 'Production', status: 'available' },
+      { name: 'Sanding Machine S-02', type: 'Sanding', location: 'Line B', department: 'Production', status: 'available' },
+      { name: 'Welding Machine W-01', type: 'Welding', location: 'Bay 1', department: 'Production', status: 'available' },
+      { name: 'Welding Machine W-02', type: 'Welding', location: 'Bay 2', department: 'Production', status: 'available' },
+      { name: 'CNC Machine C-01', type: 'CNC Cutting', location: 'Line A', department: 'Production', status: 'available' },
+      { name: 'Assembly Station A-01', type: 'Assembly', location: 'Line A', department: 'Production', status: 'available' },
+      { name: 'Assembly Station A-02', type: 'Assembly', location: 'Line B', department: 'Production', status: 'available' },
+      { name: 'Painting Booth P-01', type: 'Painting', location: 'Bay 3', department: 'Production', status: 'available' },
+      { name: 'Packaging Line PK-01', type: 'Packaging', location: 'Warehouse', department: 'Production', status: 'available' },
+      { name: 'QC Station QC-01', type: 'Inspection', location: 'QC Lab', department: 'Quality Control', status: 'available' },
+      { name: 'QC Station QC-02', type: 'Inspection', location: 'QC Lab', department: 'Quality Control', status: 'available' },
+      { name: 'Forklift FL-01', type: 'Forklift', location: 'Warehouse', department: 'Logistics', status: 'available' },
+      { name: 'Forklift FL-02', type: 'Forklift', location: 'Receiving Bay', department: 'Logistics', status: 'available' },
+    ];
+
+    for (const machine of demoMachines) {
+      await this.saveMachine(machine);
+    }
+
+    // Seed mock records for all departments (for AI imputation history)
+    const mockRecords = [
+      // Quality Control records
+      { department: 'Quality Control', category: 'Quality Control', inspectionType: 'Incoming Material', batchRef: 'WO-2201 / Batch RM-0422', productName: 'Steel Panel A-Series', priority: 'High', sampleSize: '30 pcs', qcStation: 'QC Station 1', defectType: 'Surface defect', disposition: 'Hold', date: '2026-04-20', shift: 'Morning', duration: '1–2 hours', description: 'ISO 9001:2015 incoming inspection. Surface defect found on 3 of 30 samples.', status: 'completed' },
+      { department: 'Quality Control', category: 'Quality Control', inspectionType: 'Incoming Material', batchRef: 'WO-2202 / Batch RM-0423', productName: 'Steel Panel A-Series', priority: 'High', sampleSize: '30 pcs', qcStation: 'QC Station 1', defectType: 'None', disposition: 'Accept', date: '2026-04-21', shift: 'Morning', duration: '1–2 hours', description: 'ISO 9001:2015 incoming inspection. All samples passed dimensional and surface checks.', status: 'completed' },
+      { department: 'Quality Control', category: 'Quality Control', inspectionType: 'Final Inspection', batchRef: 'WO-2200 / Batch FG-0420', productName: 'Bracket B-Type', priority: 'Normal', sampleSize: '50 pcs', qcStation: 'QC Station 2', defectType: 'Dimensional', disposition: 'Rework', date: '2026-04-19', shift: 'Afternoon', duration: '2–4 hours', description: 'Final QC before shipment. Dimensional tolerance exceeded on 5 units.', status: 'completed' },
+      { department: 'Quality Control', category: 'Quality Control', inspectionType: 'In-Process', batchRef: 'WO-2198 / Batch IP-0418', productName: 'Aluminium Frame C', priority: 'Normal', sampleSize: '20 pcs', qcStation: 'QC Station 1', defectType: 'None', disposition: 'Accept', date: '2026-04-18', shift: 'Morning', duration: '1–2 hours', description: 'In-process check at sanding stage. All within spec.', status: 'completed' },
+
+      // Production records
+      { department: 'Production', category: 'Production', workOrderNo: 'WO-2195', productName: 'Steel Panel A-Series', processType: 'Sanding', targetQuantity: '500', unit: 'pcs', location: 'Line A', shift: 'Morning', date: '2026-04-17', duration: '4–8 hours', priority: 'Normal', impact: 'No disruption', description: 'Standard sanding run for batch RM-0417.', status: 'completed' },
+      { department: 'Production', category: 'Production', workOrderNo: 'WO-2196', productName: 'Bracket B-Type', processType: 'Welding', targetQuantity: '200', unit: 'pcs', location: 'Bay 1', shift: 'Afternoon', date: '2026-04-18', duration: '4–8 hours', priority: 'High', impact: 'Minor disruption', description: 'Welding run for bracket assembly order.', status: 'completed' },
+
+      // Maintenance records
+      { department: 'Maintenance', category: 'Maintenance', equipmentId: 'M-05', title: 'CNC Machine M-05', maintenanceType: 'Preventive', location: 'Line A', estimatedDowntime: '2–4 hours', spareParts: 'Lubrication oil, filters', technician: 'Ahmad bin Ali', shift: 'Night', date: '2026-04-16', duration: '2–4 hours', priority: 'Normal', description: 'Scheduled preventive maintenance for CNC M-05.', status: 'completed' },
+      { department: 'Maintenance', category: 'Maintenance', equipmentId: 'M-07', title: 'Machine M-07', maintenanceType: 'Corrective', location: 'Line B', estimatedDowntime: '4–8 hours', spareParts: 'Bearing #6205, Belt V-type', technician: 'Razif bin Hassan', shift: 'Morning', date: '2026-04-22', duration: '4–8 hours', priority: 'High', description: 'Corrective maintenance after breakdown during production shift.', status: 'completed' },
+
+      // Logistics records
+      { department: 'Logistics', category: 'Logistics', requestType: 'Inbound Delivery', vendorName: 'ABC Steel Supplies Sdn Bhd', poNumber: 'PO-20240420', materialDesc: 'Raw steel rods Grade A', quantity: '500 kg', bay: 'Bay 3', vehicleRequired: 'Forklift', date: '2026-04-20', shift: 'Morning', priority: 'Normal', description: 'Standard inbound delivery of steel rods.', status: 'completed' },
+      { department: 'Logistics', category: 'Logistics', requestType: 'Inbound Delivery', vendorName: 'ABC Steel Supplies Sdn Bhd', poNumber: 'PO-20240422', materialDesc: 'Steel sheet panels', quantity: '300 kg', bay: 'Bay 3', vehicleRequired: 'Forklift', date: '2026-04-22', shift: 'Morning', priority: 'High', description: 'Urgent delivery of steel panels for production order.', status: 'completed' },
+    ];
+
+    for (const record of mockRecords) {
+      await this.saveRecord(record);
+    }
+
+    return { message: 'Demo data seeded successfully' };
   }
 }
 
