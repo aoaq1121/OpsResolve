@@ -14,20 +14,27 @@ export default function App() {
   const tabs = getVisibleTabs(role);
 
   useEffect(() => {
+    if (!department) return;
+
     function load() {
       fetch("http://localhost:3001/api/conflicts")
         .then((res) => res.json())
         .then((data) => {
           const raw = Array.isArray(data) ? data : data.data || [];
-          const open = raw.filter((c) => c.status !== "resolved" && c.status !== "overridden").length;
+          const open = raw.filter((c) => {
+            const isOpen = c.status !== "resolved" && c.status !== "overridden";
+            const depts = c.departmentsInvolved || [c.department_a, c.department_b].filter(Boolean) || [];
+            return isOpen && depts.includes(department);
+          }).length;
           setOpenConflictCount(open);
         })
         .catch(() => setOpenConflictCount(0));
     }
+
     load();
     const interval = setInterval(load, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [department]);
 
   function handleContinue() {
     if (!role || !department) {

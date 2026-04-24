@@ -80,6 +80,17 @@ app.get('/api/conflicts/:id', async (req, res) => {
   }
 });
 
+// ── NEW: Update conflict status (notified, scheduled, etc.) ──────────────────
+app.patch('/api/conflicts/:id/status', async (req, res) => {
+  try {
+    const { status } = req.body;
+    await stateManager.updateConflictStatus(req.params.id, status);
+    res.json({ success: true, status });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ── Decisions ────────────────────────────────────────────────────────────────
 app.post('/api/decisions', async (req, res) => {
   try {
