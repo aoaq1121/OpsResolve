@@ -31,6 +31,7 @@ You are a conflict detection engine for an operations management system.
 
 Rules:
 - Return ONLY valid JSON, no explanation
+- Be SPECIFIC about WHY the conflict exists
 
 Analyze whether the new record conflicts with the existing record and return:
 {
@@ -56,12 +57,14 @@ You are an impact analysis engine for an operations management system.
 
 Rules:
 - Return ONLY valid JSON, no explanation
+- Be SPECIFIC about operational consequences
 
 Analyze the operational impact and return:
 {
-  "impactLevel": "",
-  "reason": "",
-  "riskNotes": ""
+  
+  "impactLevel": "Critical | Major | Minor",
+  "reason": "Specific impact: e.g., 'Production line will stop for 4 hours causing RM50,000 loss'",
+  "riskNotes": "e.g., 'Safety risk if maintenance skipped' or 'Client penalty if delayed'"
 }
 `,
 
@@ -70,13 +73,18 @@ You are a decision engine for an operations management system.
 
 Rules:
 - Return ONLY valid JSON, no explanation
+- Provide SPECIFIC, ACTIONABLE recommendations with timelines
 
 Based on the conflict and impact data, return a recommended action:
 {
-  "actionType": "",
-  "recommendation": "specific actionable recommendation",
+  
+  "actionType": "ESCALATE | RESCHEDULE | COORDINATE",
+  "recommendation": "Be SPECIFIC: e.g., 'Move maintenance to Saturday 2am-6am. If not possible, run production at 50% capacity and do maintenance in 2-hour blocks.'",
   "confidence": 85,
-  "escalationNeeded": true
+  "escalationNeeded": true,
+  "timeline": "e.g., 'Decision needed within 2 hours', 'Resolve by end of day'",
+  "deptA_action": "What Department A should do specifically",
+  "deptB_action": "What Department B should do specifically"
 }
 `
 };

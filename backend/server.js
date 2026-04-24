@@ -1,5 +1,5 @@
 require("dotenv").config();
-console.log("API KEY:", process.env.ILMU_API_KEY);
+//console.log("API KEY:", process.env.ILMU_API_KEY);
 
 const express = require("express");
 const cors = require("cors");
