@@ -10,7 +10,7 @@ export function getVisibleTabs(role) {
   return {
     new: true,
     conflicts: true,
-    decisions: role === "manager",
-    reviews: role === "manager",
+    //decisions: role === "manager",
+    //reviews: role === "manager",
   };
 }

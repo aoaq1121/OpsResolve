@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { deptColors, conflictCategories, detectConflictCategories, parsePoints, makeShortTitle } from "./conflictUtils";
-
+import { deptColors, conflictCategories, detectConflictCategories, parsePoints, makeShortTitle } from "../utils/conflictUtils";
 function ConfidenceMeter({ value }) {
   const [width, setWidth] = useState(0);
   useEffect(() => { const t = setTimeout(() => setWidth(value), 150); return () => clearTimeout(t); }, [value]);
@@ -169,8 +168,10 @@ export default function ConflictPopup({ conflict, role, onClose, onResolve }) {
 
           <p className="section-label">Conflicting Records</p>
           <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
-            <RecordCard recordId={conflict.recordA} record={recordAData} department={departments[0]} label="Record A" />
-            <RecordCard recordId={conflict.recordB} record={recordBData} department={departments[1]} label="Record B" />
+            {/* <RecordCard recordId={conflict.recordA} record={recordAData} department={departments[0]} label="Record A" />
+            <RecordCard recordId={conflict.recordB} record={recordBData} department={departments[1]} label="Record B" /> */}
+            <RecordCard recordId={conflict.recordA} record={recordAData} department={departments[0]} />
+<RecordCard recordId={conflict.recordB} record={recordBData} department={departments[1]} />
           </div>
 
           <p className="section-label">AI Analysis</p>
@@ -298,5 +299,7 @@ export default function ConflictPopup({ conflict, role, onClose, onResolve }) {
         `}</style>
       </div>
     </div>
+
+    
   );
 }
