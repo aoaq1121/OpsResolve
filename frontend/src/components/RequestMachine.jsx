@@ -207,11 +207,11 @@ Return ONLY JSON: { "processType": one of the valid types above or null, "date":
   }
 
   return (
-    <div style={{ padding: "1.75rem", width: "100%", maxWidth: 700 }}>
+    <div style={{ padding: "1.75rem", width: "100%", maxWidth: 700, margin: "0 auto" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem" }}>
-        <div>
-          <h2 className="section-title">Request Machine</h2>
-          <p style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Say what you need — AI will find available machines instantly</p>
+        <div style={{ flex: 1 }}>
+          <h2 className="section-title" style={{ textAlign: "center" }}>Request Machine</h2>
+          <p style={{ fontSize: 13, color: "#64748b", marginTop: 4, textAlign: "center" }}>Say what you need — AI will find available machines instantly</p>
         </div>
         <span style={{
           fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 100,

@@ -2,8 +2,6 @@ import { Topbar } from "./Topbar";
 import { TabNavigation } from "./TabNavigation";
 import { NewRecord } from "./NewRecord";
 import { RequestMachine } from "./RequestMachine";
-import { DecisionReview } from "./DecisionReview";
-import { ReviewApproval } from "./ReviewApproval";
 import ActiveConflicts from "./ActiveConflicts";
 
 export function Workspace({
@@ -46,9 +44,6 @@ export function Workspace({
         <ActiveConflicts role={role} department={department} />
       )}
 
-      {activeTab === "decisions" && <DecisionReview />}
-
-      {activeTab === "reviews" && <ReviewApproval />}
     </div>
   );
 }

@@ -1,13 +1,16 @@
 import { useState, useMemo, useEffect } from "react";
-import ConflictPopup, { makeShortTitle } from "./ConflictPopup";
+import ConflictPopup from "./ConflictPopup";
+import { makeShortTitle } from "../utils/conflictUtils";
 
 const severityOrder = { High: 0, Medium: 1, Low: 2 };
 
 const statusMeta = {
-  urgent:   { label: "Awaiting coordination", dot: "#ef4444", pulse: true },
-  progress: { label: "Meeting scheduled",     dot: "#f59e0b", pulse: false },
-  pending:  { label: "Pending review",        dot: "#94a3b8", pulse: false },
-  resolved: { label: "Resolved",              dot: "#22c55e", pulse: false },
+  urgent:    { label: "Awaiting coordination", dot: "#ef4444", pulse: true },
+  notified:  { label: "All parties notified",  dot: "#f59e0b", pulse: false },
+  scheduled: { label: "Meeting scheduled",     dot: "#f59e0b", pulse: false },
+  progress:  { label: "Meeting scheduled",     dot: "#f59e0b", pulse: false },
+  pending:   { label: "Pending review",        dot: "#94a3b8", pulse: false },
+  resolved:  { label: "Resolved",              dot: "#22c55e", pulse: false },
 };
 
 function SeverityBadge({ severity }) {
@@ -27,13 +30,14 @@ function StatusDot({ type }) {
 function resolveRecordId(value, records) {
   if (!value || value === "—") return value;
   if (/^record\d+$/i.test(value)) return value;
+  const normalize = (s) => (s || "").toLowerCase().replace(/[—–-]/g, "-").trim();
   const found = records.find((r) =>
-    r.title === value || r.title?.toLowerCase() === value?.toLowerCase()
+    normalize(r.title) === normalize(value)
   );
   return found?.id || value;
 }
 
-export default function ActiveConflicts({ role, department }) {
+export default function ActiveConflicts({ role, department, name }) {
   const [conflicts, setConflicts]       = useState([]);
   const [records, setRecords]           = useState([]);
   const [loading, setLoading]           = useState(true);
@@ -50,7 +54,7 @@ export default function ActiveConflicts({ role, department }) {
     fetchAll();
     const interval = setInterval(fetchAll, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [showResolved]);
 
   async function fetchAll() {
     await Promise.all([fetchConflicts(), fetchRecords()]);
@@ -68,7 +72,10 @@ export default function ActiveConflicts({ role, department }) {
 
   async function fetchConflicts() {
     try {
-      const response = await fetch("http://localhost:3001/api/conflicts");
+      const url = showResolved 
+        ? "http://localhost:3001/api/conflicts/all"
+        : "http://localhost:3001/api/conflicts";
+      const response = await fetch(url);
       const data = await response.json();
       const raw = Array.isArray(data) ? data : data.data || [];
       const mapped = raw.map((c) => ({
@@ -77,7 +84,11 @@ export default function ActiveConflicts({ role, department }) {
         severity: c.severity ? c.severity.charAt(0).toUpperCase() + c.severity.slice(1) : "Medium",
         departmentsInvolved: c.departmentsInvolved || [c.department_a, c.department_b].filter(Boolean) || [c.department].filter(Boolean),
         status: c.status === "active" ? "open" : c.status,
-        statusType: c.status === "active" ? "urgent" : c.status === "overridden" || c.status === "resolved" ? "resolved" : "pending",
+        statusType: c.status === "active" ? "urgent" 
+          : c.status === "notified" ? "notified"
+          : c.status === "scheduled" ? "scheduled"
+          : c.status === "overridden" || c.status === "resolved" ? "resolved" 
+          : "pending",
         confidence: c.confidence ? (c.confidence <= 1 ? Math.round(c.confidence * 100) : c.confidence) : 0,
         reportedAt: c.first_detected ? new Date(c.first_detected).toLocaleString() : "—",
         recordA: c.records_involved?.[0] || c.recordA || "—",
@@ -126,9 +137,14 @@ export default function ActiveConflicts({ role, department }) {
 
   function handleResolve(conflictId, decision) {
     setConflicts((prev) =>
-      prev.map((c) =>
-        c.conflictId === conflictId ? { ...c, status: "resolved", statusType: "resolved", decision } : c
-      )
+      prev.map((c) => {
+        if (c.conflictId !== conflictId) return c;
+        const status = decision.status || "resolved";
+        const statusType = status === "notified" ? "notified"
+          : status === "scheduled" ? "scheduled"
+          : "resolved";
+        return { ...c, status, statusType, decision };
+      })
     );
   }
 
@@ -223,12 +239,6 @@ export default function ActiveConflicts({ role, department }) {
                   )}
                 </div>
 
-                <div style={{ fontSize: 12, color: "#94a3b8", margin: "6px 0 8px", display: "flex", gap: 8, alignItems: "center" }}>
-                  <span style={{ background: "#f1f5f9", padding: "2px 8px", borderRadius: 5, fontWeight: 600, color: "#475569" }}>{displayA}</span>
-                  <span style={{ color: "#cbd5e1" }}>↔</span>
-                  <span style={{ background: "#f1f5f9", padding: "2px 8px", borderRadius: 5, fontWeight: 600, color: "#475569" }}>{displayB}</span>
-                </div>
-
                 <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
                   {(conflict.departmentsInvolved || []).map((d) => (
                     <span key={d} className="dept-tag" style={d === department ? { background: "#eff6ff", color: "#1d4ed8", borderColor: "#bfdbfe", fontWeight: 700 } : {}}>{d}</span>
@@ -256,6 +266,8 @@ export default function ActiveConflicts({ role, department }) {
         <ConflictPopup
           conflict={conflicts.find((c) => c.conflictId === selected.conflictId)}
           role={role}
+          name={name}
+          department={department}
           onClose={() => setSelected(null)}
           onResolve={handleResolve}
         />

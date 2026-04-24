@@ -11,7 +11,5 @@ export function getVisibleTabs(role) {
     new: true,
     request: true,
     conflicts: true,
-    decisions: role === "manager",
-    reviews: role === "manager",
   };
 }

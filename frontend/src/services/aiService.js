@@ -24,6 +24,7 @@ export async function aiExtract(prompt, file = null, department = null) {
 
   const body = { prompt, department, pastRecords };
   if (file) body.file = { base64: file.base64, mediaType: file.mediaType };
+  console.log("Sending to backend:", { promptLength: prompt.length, hasFile: !!file, mediaType: file?.mediaType });
 
   const response = await fetch("http://localhost:5000/api/ai-extract", {
     method: "POST",

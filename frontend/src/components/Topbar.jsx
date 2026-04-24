@@ -24,16 +24,7 @@ export function Topbar({ role, department, openConflictCount, onLogout }) {
 
       {openConflictCount > 0 && (
         <div className="stat-chip">
-          <span
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: "50%",
-              background: "#ef4444",
-              display: "inline-block",
-              animation: "pulse 1.5s infinite",
-            }}
-          />
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#ef4444", display: "inline-block", animation: "pulse 1.5s infinite" }} />
           <strong>{openConflictCount}</strong> active conflict{openConflictCount !== 1 ? "s" : ""}
         </div>
       )}
@@ -41,13 +32,9 @@ export function Topbar({ role, department, openConflictCount, onLogout }) {
       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
         <div className="user-pill">
           <div className="avatar">{avatarInitials}</div>
-          <span>
-            {ROLES[role]} · {department}
-          </span>
+          <span>{ROLES[role]} · {department}</span>
         </div>
-        <button className="logout-btn" onClick={onLogout}>
-          Sign out
-        </button>
+        <button className="logout-btn" onClick={onLogout}>Sign out</button>
       </div>
     </div>
   );
