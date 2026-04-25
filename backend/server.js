@@ -6,32 +6,19 @@ const fetch = require("node-fetch");
 const { aiController } = require("./controllers/aiController");
 
 const app = express();
-
 app.use(cors());
 app.use(express.json({ limit: "20mb" }));
 
 app.post("/api/submit-record", aiController);
 
-// ── Helper: call Gemini API ───────────────────────────────────────────────────
+// ── Gemini helper ─────────────────────────────────────────────────────────────
 async function callGemini(prompt, file = null, maxTokens = 1000) {
-  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-
+  const key = process.env.GEMINI_API_KEY;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
   const parts = [];
-
-  // Add file if provided (PDF or image)
-  if (file) {
-    parts.push({
-      inline_data: {
-        mime_type: file.mediaType,
-        data: file.base64,
-      },
-    });
-  }
-
+  if (file) parts.push({ inline_data: { mime_type: file.mediaType, data: file.base64 } });
   parts.push({ text: prompt });
-
-  const response = await fetch(url, {
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -39,8 +26,7 @@ async function callGemini(prompt, file = null, maxTokens = 1000) {
       generationConfig: { temperature: 0.1, maxOutputTokens: maxTokens },
     }),
   });
-
-  const data = await response.json();
+  const data = await res.json();
   if (data.error) throw new Error(data.error.message);
   return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 }
@@ -50,96 +36,43 @@ app.post("/api/ai-extract", async (req, res) => {
   try {
     const { prompt, file, department, pastRecords } = req.body;
 
-    let geminiFile = null;
-
-    if (file) {
-      // Send file directly to Gemini — it supports PDF and images natively
-      geminiFile = file;
+    // Build history context for imputation
+    let historyContext = "";
+    if (pastRecords && pastRecords.length > 0) {
+      const historyStr = pastRecords.slice(0, 3).map((r, i) =>
+        `Record ${i + 1}: ${JSON.stringify({
+          processType: r.processType, location: r.location, equipment: r.equipment,
+          shift: r.shift, duration: r.duration, maintenanceType: r.maintenanceType,
+          estimatedDowntime: r.estimatedDowntime, spareParts: r.spareParts,
+          inspectionType: r.inspectionType, sampleSize: r.sampleSize, qcStation: r.qcStation,
+        })}`
+      ).join("\n");
+      historyContext = `\n\nPast ${department} records for reference — use these to fill any missing fields:\n${historyStr}`;
     }
 
-    // Build prompt
-    const fullPrompt = prompt;
+    const combinedPrompt = `${prompt}${historyContext}`;
+    console.log("Calling Gemini, prompt length:", combinedPrompt.length);
 
-    // Step 1: Extract fields
-    console.log("Calling Gemini, prompt length:", fullPrompt.length);
-    const extractedRaw = await callGemini(fullPrompt, geminiFile);
-    console.log("Gemini response:", extractedRaw.substring(0, 300));
+    const raw = await callGemini(combinedPrompt, file || null, 1000);
+    console.log("Gemini response:", raw.substring(0, 300));
 
-    // Parse JSON from response
+    // Parse JSON
     let extracted = {};
     try {
-      const clean = extractedRaw.replace(/```json|```/g, "").trim();
-      extracted = JSON.parse(clean);
-    } catch {
-      // Try to extract JSON object from response
-      const match = extractedRaw.match(/\{[\s\S]*\}/);
-      if (match) {
-        try { extracted = JSON.parse(match[0]); } catch { extracted = {}; }
-      }
-    }
-    console.log("Step 1 extracted:", JSON.stringify(extracted));
+      const clean = raw.replace(/```json|```/g, "").trim();
+      extracted = JSON.parse(clean.match(/\{[\s\S]*\}/)?.[0] || clean);
+    } catch { extracted = {}; }
+    console.log("Extracted:", JSON.stringify(extracted));
 
-    // Skip imputation if extraction failed
-    const extractionFailed = !extracted || Object.values(extracted).every(v => v === null || v === undefined);
-    if (extractionFailed) {
-      res.json({ text: extractedRaw, parsed: extracted || {}, aiSuggested: [] });
-      return;
+    // Identify AI-suggested fields (fields with values that were likely missing from doc)
+    const aiSuggested = [];
+    if (pastRecords && pastRecords.length > 0 && extracted) {
+      ["duration", "estimatedDowntime", "spareParts", "sampleSize", "qcStation"].forEach(f => {
+        if (extracted[f]) aiSuggested.push(f);
+      });
     }
 
-    // Step 2: Impute missing fields from past records
-    let imputed = {};
-    let aiSuggested = [];
-
-    console.log("pastRecords received:", pastRecords?.length || 0);
-    if (pastRecords && pastRecords.length > 0) {
-      const knownMachines = ["Welding Machine W-01", "Welding Machine W-02", "Sanding Machine S-01", "Sanding Machine S-02", "CNC Machine C-01", "Assembly Station A-01", "Assembly Station A-02", "Painting Booth P-01", "Packaging Line PK-01"];
-      const missingFields = Object.entries(extracted)
-        .filter(([k, v]) => {
-          if (v === null || v === undefined || v === "") return true;
-          // Treat equipment as missing if it's not a known machine name
-          if (k === "equipment" && !knownMachines.some(m => m.toLowerCase() === String(v).toLowerCase())) return true;
-          return false;
-        })
-        .map(([k]) => k);
-
-      console.log("Missing fields to impute:", missingFields);
-
-      if (missingFields.length > 0) {
-        const historyStr = pastRecords
-          .slice(0, 3)
-          .map((r, i) => `Record ${i + 1}: ${JSON.stringify({
-            processType: r.processType, location: r.location,
-            equipment: r.equipment, shift: r.shift, duration: r.duration,
-            inspectionType: r.inspectionType, sampleSize: r.sampleSize,
-            qcStation: r.qcStation, disposition: r.disposition,
-          })}`)
-          .join("\n");
-
-        const imputePrompt = `Based on these past ${department} maintenance records:\n${historyStr}\n\nFor a new ${department} record with these details: ${JSON.stringify({ maintenanceType: extracted.maintenanceType, location: extracted.location, description: extracted.description })}\n\nSuggest realistic values for: ${missingFields.join(", ")}.\nReturn ONLY valid JSON like: {"estimatedDowntime":"2-4 hours","spareParts":"Lubrication oil, filters","duration":"2-4 hours"}\nNo explanation, no markdown.`;
-
-        const imputedRaw = await callGemini(imputePrompt, null, 200);
-        console.log("Imputation response:", imputedRaw.substring(0, 300));
-        try {
-          const clean = imputedRaw.replace(/```json|```/g, "").trim();
-          // Try full parse first
-          let jsonStr = clean.match(/\{[\s\S]*\}/)?.[0] || clean;
-          // If truncated, try to complete it
-          if (!jsonStr.endsWith("}")) {
-            // Remove last incomplete key-value pair and close
-            jsonStr = jsonStr.replace(/,?\s*"[^"]*"\s*:\s*"[^"]*$/, "") + "}";
-          }
-          imputed = JSON.parse(jsonStr);
-          console.log("Step 2 imputed:", JSON.stringify(imputed));
-          aiSuggested = Object.keys(imputed);
-        } catch (e) {
-          console.log("Imputation parse failed:", e.message);
-          imputed = {};
-        }
-      }
-    }
-
-    const merged = { ...extracted, ...imputed };
-    res.json({ text: extractedRaw, parsed: merged, aiSuggested });
+    res.json({ text: raw, parsed: extracted, aiSuggested });
 
   } catch (err) {
     console.error("AI extract error:", err.message);
@@ -147,9 +80,7 @@ app.post("/api/ai-extract", async (req, res) => {
   }
 });
 
-app.get("/", (req, res) => {
-  res.send("OpsResolve Backend Running");
-});
+app.get("/", (req, res) => res.send("OpsResolve Backend Running"));
 
 app.get("/api/test-ai", async (req, res) => {
   try {
@@ -161,6 +92,4 @@ app.get("/api/test-ai", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));

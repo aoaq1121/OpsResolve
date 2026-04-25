@@ -123,12 +123,12 @@ function AIFillBar({ onFilled, accent, light, border, department }) {
       setStatus("Extracting fields...");
       const deptPrompts = {
         Production: "workOrderNo, productName, processType, priority, targetQuantity, unit, location, equipment, date, shift, duration, description",
-        Maintenance: "equipmentId, title (the actual equipment name NOT the form title - look for 'Equipment Name' field), maintenanceType, location, estimatedDowntime, spareParts, technician, date, shift, duration, description",
+        Maintenance: "equipmentId, title (actual equipment name from 'Equipment Name' field, not form title), maintenanceType, location, estimatedDowntime, spareParts, technician, date, shift, duration, description",
         "Quality Control": "inspectionType, batchRef, productName, priority, sampleSize, qcStation, defectType, disposition, date, shift, duration, description",
         Logistics: "requestType, vendorName, poNumber, materialDesc, quantity, bay, vehicleRequired, arrivalTime, date, shift, priority, description",
       };
       const fieldList = deptPrompts[department] || "workOrderNo, productName, processType, priority, location, equipment, date, shift, duration, description";
-      const prompt = `Extract these fields from the document text and return ONLY JSON (null if missing): ${fieldList}. No explanation, just JSON.`;
+      const prompt = `Extract these fields from the document: ${fieldList}. For any fields NOT found in the document (null), use the past records provided to suggest a value. Return ONLY JSON. No explanation.`;
       const result = await aiExtract(prompt, { base64, mediaType: file.type }, department);
       if (!result.parsed) throw new Error("Could not parse");
       console.log("AI parsed:", result.parsed);
@@ -283,9 +283,7 @@ function ProductionForm({ form, onChange }) {
 
       <div className="form-section-label">Remarks</div>
       <div style={{ marginBottom: 4 }}>
-        <Field label="Remarks">
-          <textarea placeholder="Additional notes, constraints or instructions..." value={form.description || ""} onChange={e => onChange("description", e.target.value)} style={{ minHeight: 80 }} />
-        </Field>
+        <textarea placeholder="Additional notes, constraints or instructions..." value={form.description || ""} onChange={e => onChange("description", e.target.value)} style={{ minHeight: 80, width: "100%", borderRadius: 8, border: "1.5px solid #e2e8f0", padding: "10px 12px", fontSize: 14, resize: "vertical" }} />
       </div>
     </>
   );
@@ -381,9 +379,7 @@ function MaintenanceForm({ form, onChange }) {
 
       <div className="form-section-label">Fault Description</div>
       <div style={{ marginBottom: 4 }}>
-        <Field label="Fault Description" required>
-          <textarea placeholder="Describe the fault, symptoms, or maintenance scope in detail..." value={form.description || ""} onChange={e => onChange("description", e.target.value)} style={{ minHeight: 80 }} />
-        </Field>
+        <textarea required placeholder="Describe the fault, symptoms, or maintenance scope in detail..." value={form.description || ""} onChange={e => onChange("description", e.target.value)} style={{ minHeight: 80, width: "100%", borderRadius: 8, border: "1.5px solid #e2e8f0", padding: "10px 12px", fontSize: 14, resize: "vertical" }} />
       </div>
     </>
   );
@@ -483,9 +479,7 @@ function QualityControlForm({ form, onChange }) {
 
       <div className="form-section-label">Inspection Criteria & Remarks</div>
       <div style={{ marginBottom: 4 }}>
-        <Field label="Inspection Criteria / Standard" required>
-          <textarea placeholder="e.g. ISO 9001, internal spec IQS-04, AQL 1.0..." value={form.description || ""} onChange={e => onChange("description", e.target.value)} style={{ minHeight: 80 }} />
-        </Field>
+        <textarea required placeholder="e.g. ISO 9001, internal spec IQS-04, AQL 1.0..." value={form.description || ""} onChange={e => onChange("description", e.target.value)} style={{ minHeight: 80, width: "100%", borderRadius: 8, border: "1.5px solid #e2e8f0", padding: "10px 12px", fontSize: 14, resize: "vertical" }} />
       </div>
     </>
   );
@@ -579,9 +573,7 @@ function LogisticsForm({ form, onChange }) {
 
       <div className="form-section-label">Remarks</div>
       <div style={{ marginBottom: 4 }}>
-        <Field label="Remarks">
-          <textarea placeholder="Special handling instructions, customs notes, delivery constraints..." value={form.description || ""} onChange={e => onChange("description", e.target.value)} style={{ minHeight: 80 }} />
-        </Field>
+        <textarea placeholder="Special handling instructions, customs notes, delivery constraints..." value={form.description || ""} onChange={e => onChange("description", e.target.value)} style={{ minHeight: 80, width: "100%", borderRadius: 8, border: "1.5px solid #e2e8f0", padding: "10px 12px", fontSize: 14, resize: "vertical" }} />
       </div>
     </>
   );
