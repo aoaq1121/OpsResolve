@@ -607,6 +607,7 @@ export function NewRecord({ onViewConflicts, department, openConflictCount = 0 }
   }
 
   const [aiSuggestedFields, setAiSuggestedFields] = useState([]);
+  const [resetKey, setResetKey] = useState(0);
 
   function handleAIFill(parsed, suggested = []) {
     setForm((prev) => ({
@@ -695,6 +696,8 @@ export function NewRecord({ onViewConflicts, department, openConflictCount = 0 }
     setSelectedMachine(null);
     setDetectedConflict(null);
     setRecordAdded(false);
+    setAiSuggestedFields([]);
+    setResetKey(k => k + 1);
   }
 
   return (
@@ -733,6 +736,7 @@ export function NewRecord({ onViewConflicts, department, openConflictCount = 0 }
       }}>
         {/* AI Fill bar */}
         <AIFillBar
+          key={resetKey}
           onFilled={handleAIFill}
           accent={config.accent}
           light={config.light}
