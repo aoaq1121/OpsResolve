@@ -13,7 +13,7 @@ app.use(express.json({ limit: "20mb" }));
 app.post("/api/submit-record", aiController);
 
 // ── Helper: call Gemini API ───────────────────────────────────────────────────
-async function callGemini(prompt, file = null) {
+async function callGemini(prompt, file = null, maxTokens = 1000) {
   const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
@@ -36,7 +36,7 @@ async function callGemini(prompt, file = null) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       contents: [{ parts }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 1000 },
+      generationConfig: { temperature: 0.1, maxOutputTokens: maxTokens },
     }),
   });
 
@@ -115,15 +115,26 @@ app.post("/api/ai-extract", async (req, res) => {
           })}`)
           .join("\n");
 
-        const imputePrompt = `Based on these past ${department} records:\n${historyStr}\n\nSuggest values for missing fields: ${missingFields.join(", ")}.\nCurrent data: ${JSON.stringify(extracted)}.\nReturn ONLY a JSON object with just the missing fields. No explanation.`;
+        const imputePrompt = `Based on these past ${department} maintenance records:\n${historyStr}\n\nFor a new ${department} record with these details: ${JSON.stringify({ maintenanceType: extracted.maintenanceType, location: extracted.location, description: extracted.description })}\n\nSuggest realistic values for: ${missingFields.join(", ")}.\nReturn ONLY valid JSON like: {"estimatedDowntime":"2-4 hours","spareParts":"Lubrication oil, filters","duration":"2-4 hours"}\nNo explanation, no markdown.`;
 
-        const imputedRaw = await callGemini(imputePrompt);
+        const imputedRaw = await callGemini(imputePrompt, null, 200);
+        console.log("Imputation response:", imputedRaw.substring(0, 300));
         try {
           const clean = imputedRaw.replace(/```json|```/g, "").trim();
-          const match = clean.match(/\{[\s\S]*\}/);
-          imputed = match ? JSON.parse(match[0]) : {};
+          // Try full parse first
+          let jsonStr = clean.match(/\{[\s\S]*\}/)?.[0] || clean;
+          // If truncated, try to complete it
+          if (!jsonStr.endsWith("}")) {
+            // Remove last incomplete key-value pair and close
+            jsonStr = jsonStr.replace(/,?\s*"[^"]*"\s*:\s*"[^"]*$/, "") + "}";
+          }
+          imputed = JSON.parse(jsonStr);
+          console.log("Step 2 imputed:", JSON.stringify(imputed));
           aiSuggested = Object.keys(imputed);
-        } catch { imputed = {}; }
+        } catch (e) {
+          console.log("Imputation parse failed:", e.message);
+          imputed = {};
+        }
       }
     }
 

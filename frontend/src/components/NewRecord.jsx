@@ -123,7 +123,7 @@ function AIFillBar({ onFilled, accent, light, border, department }) {
       setStatus("Extracting fields...");
       const deptPrompts = {
         Production: "workOrderNo, productName, processType, priority, targetQuantity, unit, location, equipment, date, shift, duration, description",
-        Maintenance: "equipmentId, title, maintenanceType, location, estimatedDowntime, spareParts, technician, date, shift, duration, description",
+        Maintenance: "equipmentId, title (the actual equipment name NOT the form title - look for 'Equipment Name' field), maintenanceType, location, estimatedDowntime, spareParts, technician, date, shift, duration, description",
         "Quality Control": "inspectionType, batchRef, productName, priority, sampleSize, qcStation, defectType, disposition, date, shift, duration, description",
         Logistics: "requestType, vendorName, poNumber, materialDesc, quantity, bay, vehicleRequired, arrivalTime, date, shift, priority, description",
       };
@@ -135,9 +135,9 @@ function AIFillBar({ onFilled, accent, light, border, department }) {
       console.log("AI suggested:", result.aiSuggested);
       if (result.aiSuggested?.length > 0) {
         setSuggestedFields(result.aiSuggested);
-        setStatus(`✓ Filled from file · ${result.aiSuggested.length} field(s) suggested from history`);
+        setStatus(`Form filled · ${result.aiSuggested.length} field(s) suggested from history`);
       } else {
-        setStatus("✓ Form filled from file");
+        setStatus("Form filled from file");
       }
       onFilled(result.parsed, result.aiSuggested || []);
     } catch (err) {
@@ -166,7 +166,7 @@ function AIFillBar({ onFilled, accent, light, border, department }) {
         <input ref={fileRef} type="file" accept=".pdf,image/*" style={{ display: "none" }} onChange={handleFileUpload} />
         {status && (
           <span style={{ fontSize: 12, color: status.startsWith("✓") ? "#16a34a" : "#64748b", fontWeight: 500 }}>
-            {processing && <span style={{ marginRight: 6 }}>⏳</span>}{status}
+            {processing && <span style={{ marginRight: 6 }}></span>}{status}
           </span>
         )}
       </div>
@@ -610,6 +610,23 @@ export function NewRecord({ onViewConflicts, department, openConflictCount = 0 }
   const [resetKey, setResetKey] = useState(0);
 
   function handleAIFill(parsed, suggested = []) {
+    // Normalize duration to match dropdown options
+    const durationMap = {
+      "less than 1 hour": "Less than 1 hour",
+      "1-2 hours": "1–2 hours", "1–2 hours": "1–2 hours",
+      "2-4 hours": "2–4 hours", "2–4 hours": "2–4 hours",
+      "4-8 hours": "4–8 hours", "4–8 hours": "4–8 hours",
+      "full day": "Full day",
+      "multi-day": "Multi-day",
+    };
+    if (parsed.duration) {
+      const normalized = durationMap[parsed.duration.toLowerCase().trim()];
+      if (normalized) parsed.duration = normalized;
+    }
+    if (parsed.estimatedDowntime) {
+      const normalized = durationMap[parsed.estimatedDowntime.toLowerCase().trim()];
+      if (normalized) parsed.estimatedDowntime = normalized;
+    }
     setForm((prev) => ({
       ...prev,
       ...Object.fromEntries(Object.entries(parsed).filter(([, v]) => v !== null && v !== undefined && v !== "")),
@@ -681,6 +698,7 @@ export function NewRecord({ onViewConflicts, department, openConflictCount = 0 }
         setSelectedMachine(null);
         setAiSuggestedFields([]);
         setRecordAdded(true);
+        setResetKey(k => k + 1);
         setTimeout(() => setRecordAdded(false), 3000);
       }
     } catch (err) {

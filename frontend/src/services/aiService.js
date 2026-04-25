@@ -19,6 +19,7 @@ export async function aiExtract(prompt, file = null, department = null) {
       pastRecords = all
         .filter(r => r.department === department || r.category === department)
         .slice(-10); // last 10 records from this department
+        console.log("Past records found:", pastRecords.length, "for dept:", department);
     } catch { pastRecords = []; }
   }
 
