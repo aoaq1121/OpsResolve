@@ -121,16 +121,23 @@ function AIFillBar({ onFilled, accent, light, border, department }) {
         reader.readAsDataURL(file);
       });
       setStatus("Extracting fields...");
-      const prompt = `Extract these fields from the document text and return ONLY JSON (null if missing): inspectionType, batchRef, productName, priority, sampleSize, qcStation, defectType, disposition, date, shift, duration, description, workOrderNo, processType, location, equipmentId, maintenanceType, requestType, vendorName, poNumber, materialDesc, quantity, bay. No explanation, just JSON.`;
+      const deptPrompts = {
+        Production: "workOrderNo, productName, processType, priority, targetQuantity, unit, location, equipment, date, shift, duration, description",
+        Maintenance: "equipmentId, title (actual equipment name from 'Equipment Name' field, not form title), maintenanceType, location, estimatedDowntime, spareParts, technician, date, shift, duration, description",
+        "Quality Control": "inspectionType, batchRef, productName, priority, sampleSize, qcStation, defectType, disposition, date, shift, duration, description",
+        Logistics: "requestType, vendorName, poNumber, materialDesc, quantity, bay, vehicleRequired, arrivalTime, date, shift, priority, description",
+      };
+      const fieldList = deptPrompts[department] || "workOrderNo, productName, processType, priority, location, equipment, date, shift, duration, description";
+      const prompt = `Extract these fields from the document: ${fieldList}. For any fields NOT found in the document (null), use the past records provided to suggest a value. Return ONLY JSON. No explanation.`;
       const result = await aiExtract(prompt, { base64, mediaType: file.type }, department);
       if (!result.parsed) throw new Error("Could not parse");
       console.log("AI parsed:", result.parsed);
       console.log("AI suggested:", result.aiSuggested);
       if (result.aiSuggested?.length > 0) {
         setSuggestedFields(result.aiSuggested);
-        setStatus(`✓ Filled from file · ${result.aiSuggested.length} field(s) suggested from history`);
+        setStatus(`Form filled · ${result.aiSuggested.length} field(s) suggested from history`);
       } else {
-        setStatus("✓ Form filled from file");
+        setStatus("Form filled from file");
       }
       onFilled(result.parsed, result.aiSuggested || []);
     } catch (err) {
@@ -159,7 +166,7 @@ function AIFillBar({ onFilled, accent, light, border, department }) {
         <input ref={fileRef} type="file" accept=".pdf,image/*" style={{ display: "none" }} onChange={handleFileUpload} />
         {status && (
           <span style={{ fontSize: 12, color: status.startsWith("✓") ? "#16a34a" : "#64748b", fontWeight: 500 }}>
-            {processing && <span style={{ marginRight: 6 }}>⏳</span>}{status}
+            {processing && <span style={{ marginRight: 6 }}></span>}{status}
           </span>
         )}
       </div>
@@ -233,13 +240,18 @@ function ProductionForm({ form, onChange }) {
             <option>Bay 3</option>
           </select>
         </Field>
-        <Field label="Operational Impact">
-          <select value={form.impact || ""} onChange={e => onChange("impact", e.target.value)}>
+        <Field label="Equipment / Machine">
+          <select value={form.equipment || ""} onChange={e => onChange("equipment", e.target.value)}>
             <option value="">— Select —</option>
-            <option>No disruption</option>
-            <option>Minor disruption</option>
-            <option>Partial shutdown</option>
-            <option>Full line stop</option>
+            <option>Sanding Machine S-01</option>
+            <option>Sanding Machine S-02</option>
+            <option>Welding Machine W-01</option>
+            <option>Welding Machine W-02</option>
+            <option>CNC Machine C-01</option>
+            <option>Assembly Station A-01</option>
+            <option>Assembly Station A-02</option>
+            <option>Painting Booth P-01</option>
+            <option>Packaging Line PK-01</option>
           </select>
         </Field>
       </div>
@@ -271,9 +283,7 @@ function ProductionForm({ form, onChange }) {
 
       <div className="form-section-label">Remarks</div>
       <div style={{ marginBottom: 4 }}>
-        <Field label="Remarks">
-          <textarea placeholder="Additional notes, constraints or instructions..." value={form.description || ""} onChange={e => onChange("description", e.target.value)} style={{ minHeight: 80 }} />
-        </Field>
+        <textarea placeholder="Additional notes, constraints or instructions..." value={form.description || ""} onChange={e => onChange("description", e.target.value)} style={{ minHeight: 80, width: "100%", borderRadius: 8, border: "1.5px solid #e2e8f0", padding: "10px 12px", fontSize: 14, resize: "vertical" }} />
       </div>
     </>
   );
@@ -369,9 +379,7 @@ function MaintenanceForm({ form, onChange }) {
 
       <div className="form-section-label">Fault Description</div>
       <div style={{ marginBottom: 4 }}>
-        <Field label="Fault Description" required>
-          <textarea placeholder="Describe the fault, symptoms, or maintenance scope in detail..." value={form.description || ""} onChange={e => onChange("description", e.target.value)} style={{ minHeight: 80 }} />
-        </Field>
+        <textarea required placeholder="Describe the fault, symptoms, or maintenance scope in detail..." value={form.description || ""} onChange={e => onChange("description", e.target.value)} style={{ minHeight: 80, width: "100%", borderRadius: 8, border: "1.5px solid #e2e8f0", padding: "10px 12px", fontSize: 14, resize: "vertical" }} />
       </div>
     </>
   );
@@ -471,9 +479,7 @@ function QualityControlForm({ form, onChange }) {
 
       <div className="form-section-label">Inspection Criteria & Remarks</div>
       <div style={{ marginBottom: 4 }}>
-        <Field label="Inspection Criteria / Standard" required>
-          <textarea placeholder="e.g. ISO 9001, internal spec IQS-04, AQL 1.0..." value={form.description || ""} onChange={e => onChange("description", e.target.value)} style={{ minHeight: 80 }} />
-        </Field>
+        <textarea required placeholder="e.g. ISO 9001, internal spec IQS-04, AQL 1.0..." value={form.description || ""} onChange={e => onChange("description", e.target.value)} style={{ minHeight: 80, width: "100%", borderRadius: 8, border: "1.5px solid #e2e8f0", padding: "10px 12px", fontSize: 14, resize: "vertical" }} />
       </div>
     </>
   );
@@ -567,9 +573,7 @@ function LogisticsForm({ form, onChange }) {
 
       <div className="form-section-label">Remarks</div>
       <div style={{ marginBottom: 4 }}>
-        <Field label="Remarks">
-          <textarea placeholder="Special handling instructions, customs notes, delivery constraints..." value={form.description || ""} onChange={e => onChange("description", e.target.value)} style={{ minHeight: 80 }} />
-        </Field>
+        <textarea placeholder="Special handling instructions, customs notes, delivery constraints..." value={form.description || ""} onChange={e => onChange("description", e.target.value)} style={{ minHeight: 80, width: "100%", borderRadius: 8, border: "1.5px solid #e2e8f0", padding: "10px 12px", fontSize: 14, resize: "vertical" }} />
       </div>
     </>
   );
@@ -595,8 +599,26 @@ export function NewRecord({ onViewConflicts, department, openConflictCount = 0 }
   }
 
   const [aiSuggestedFields, setAiSuggestedFields] = useState([]);
+  const [resetKey, setResetKey] = useState(0);
 
   function handleAIFill(parsed, suggested = []) {
+    // Normalize duration to match dropdown options
+    const durationMap = {
+      "less than 1 hour": "Less than 1 hour",
+      "1-2 hours": "1–2 hours", "1–2 hours": "1–2 hours",
+      "2-4 hours": "2–4 hours", "2–4 hours": "2–4 hours",
+      "4-8 hours": "4–8 hours", "4–8 hours": "4–8 hours",
+      "full day": "Full day",
+      "multi-day": "Multi-day",
+    };
+    if (parsed.duration) {
+      const normalized = durationMap[parsed.duration.toLowerCase().trim()];
+      if (normalized) parsed.duration = normalized;
+    }
+    if (parsed.estimatedDowntime) {
+      const normalized = durationMap[parsed.estimatedDowntime.toLowerCase().trim()];
+      if (normalized) parsed.estimatedDowntime = normalized;
+    }
     setForm((prev) => ({
       ...prev,
       ...Object.fromEntries(Object.entries(parsed).filter(([, v]) => v !== null && v !== undefined && v !== "")),
@@ -664,7 +686,12 @@ export function NewRecord({ onViewConflicts, department, openConflictCount = 0 }
           recommendation: data?.aiSummary?.recommendation || "Review and coordinate with the affected department.",
         });
       } else {
+        setForm({ priority: "Normal", shift: "Morning" });
+        setSelectedMachine(null);
+        setAiSuggestedFields([]);
         setRecordAdded(true);
+        setResetKey(k => k + 1);
+        setTimeout(() => setRecordAdded(false), 3000);
       }
     } catch (err) {
       console.error(err);
@@ -679,6 +706,8 @@ export function NewRecord({ onViewConflicts, department, openConflictCount = 0 }
     setSelectedMachine(null);
     setDetectedConflict(null);
     setRecordAdded(false);
+    setAiSuggestedFields([]);
+    setResetKey(k => k + 1);
   }
 
   return (
@@ -717,6 +746,7 @@ export function NewRecord({ onViewConflicts, department, openConflictCount = 0 }
       }}>
         {/* AI Fill bar */}
         <AIFillBar
+          key={resetKey}
           onFilled={handleAIFill}
           accent={config.accent}
           light={config.light}
@@ -730,24 +760,7 @@ export function NewRecord({ onViewConflicts, department, openConflictCount = 0 }
         {department === "Quality Control" && <QualityControlForm form={form} onChange={handleChange} />}
         {department === "Logistics" && <LogisticsForm form={form} onChange={handleChange} />}
 
-        {/* Machine availability — shows after date + shift selected */}
-        {(department === "Production" || department === "Quality Control" || department === "Logistics") && (
-          <MachineAvailability
-            date={form.date}
-            shift={form.shift}
-            type={getMachineType()}
-            department={department}
-            onSelect={handleMachineSelect}
-            selectedMachineId={selectedMachine?.id}
-            accent={config.accent}
-          />
-        )}
-
-        {selectedMachine && (
-          <div style={{ marginTop: 8, fontSize: 13, color: config.text, fontWeight: 500 }}>
-            ✓ Selected: <strong>{selectedMachine.name}</strong> — {selectedMachine.location}
-          </div>
-        )}
+        {/* Machine availability removed - use Request Machine tab instead */}
 
         {/* Actions */}
         <div className="form-actions">

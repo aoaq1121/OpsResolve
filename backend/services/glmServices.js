@@ -1,13 +1,12 @@
 const fetch = require("node-fetch");
 require("dotenv").config();
 
-const API_URL = "https://api.ilmu.ai/v1/chat/completions";
-const API_KEY = process.env.ILMU_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
 const prompts = {
   inputAgent: `
 You are an input parser for an operations management system.
-
 Rules:
 - Return ONLY valid JSON, no explanation, no markdown
 
@@ -28,7 +27,6 @@ Extract structured fields from the input and return:
 
   conflictAgent: `
 You are a conflict detection engine for an operations management system.
-
 Rules:
 - Return ONLY valid JSON, no explanation
 - Be SPECIFIC about WHY the conflict exists
@@ -54,37 +52,33 @@ If no conflict detected:
 
   impactAgent: `
 You are an impact analysis engine for an operations management system.
-
 Rules:
 - Return ONLY valid JSON, no explanation
 - Be SPECIFIC about operational consequences
 
 Analyze the operational impact and return:
 {
-  
   "impactLevel": "Critical | Major | Minor",
-  "reason": "Specific impact: e.g., 'Production line will stop for 4 hours causing RM50,000 loss'",
-  "riskNotes": "e.g., 'Safety risk if maintenance skipped' or 'Client penalty if delayed'"
+  "reason": "Specific impact description",
+  "riskNotes": "Specific risk notes"
 }
 `,
 
   decisionAgent: `
 You are a decision engine for an operations management system.
-
 Rules:
 - Return ONLY valid JSON, no explanation
-- Provide SPECIFIC, ACTIONABLE recommendations with timelines
+- Provide SPECIFIC, ACTIONABLE recommendations
 
-Based on the conflict and impact data, return a recommended action:
+Based on the conflict and impact data, return:
 {
-  
   "actionType": "ESCALATE | RESCHEDULE | COORDINATE",
-  "recommendation": "Be SPECIFIC: e.g., 'Move maintenance to Saturday 2am-6am. If not possible, run production at 50% capacity and do maintenance in 2-hour blocks.'",
+  "recommendation": "Specific actionable recommendation",
   "confidence": 85,
   "escalationNeeded": true,
-  "timeline": "e.g., 'Decision needed within 2 hours', 'Resolve by end of day'",
-  "deptA_action": "What Department A should do specifically",
-  "deptB_action": "What Department B should do specifically"
+  "timeline": "Decision timeline",
+  "deptA_action": "What Department A should do",
+  "deptB_action": "What Department B should do"
 }
 `
 };
@@ -92,38 +86,31 @@ Based on the conflict and impact data, return a recommended action:
 async function callGLM(agentType, data, retries = 2) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      const response = await fetch(API_URL, {
+      const prompt = `${prompts[agentType]}\n\nInput data:\n${JSON.stringify(data, null, 2)}`;
+
+      const response = await fetch(GEMINI_URL, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${API_KEY}`,
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "ilmu-glm-5.1",
-          messages: [
-            {
-              role: "system",
-              content: prompts[agentType],
-            },
-            {
-              role: "user",
-              content: `Input data:\n${JSON.stringify(data, null, 2)}`,
-            },
-          ],
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 2048 },
         }),
       });
 
       const result = await response.json();
-      const content = result?.choices?.[0]?.message?.content;
+      if (result.error) throw new Error(result.error.message);
 
-      if (!content) throw new Error("Empty response from API");
+      const content = result.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!content) throw new Error("Empty response from Gemini");
 
       const clean = content.replace(/```json|```/g, "").trim();
-      return JSON.parse(clean);
+      const match = clean.match(/\{[\s\S]*\}/);
+      return match ? JSON.parse(match[0]) : JSON.parse(clean);
+
     } catch (err) {
-      console.error(`GLM call failed [${agentType}] attempt ${attempt}:`, err.message);
+      console.error(`Gemini call failed [${agentType}] attempt ${attempt}:`, err.message);
       if (attempt === retries) return { error: "Invalid AI response format" };
-      await new Promise((r) => setTimeout(r, 1000));
+      await new Promise((r) => setTimeout(r, 500));
     }
   }
 }
