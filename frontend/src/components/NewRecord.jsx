@@ -121,7 +121,14 @@ function AIFillBar({ onFilled, accent, light, border, department }) {
         reader.readAsDataURL(file);
       });
       setStatus("Extracting fields...");
-      const prompt = `Extract these fields from the document text and return ONLY JSON (null if missing): inspectionType, batchRef, productName, priority, sampleSize, qcStation, defectType, disposition, date, shift, duration, description, workOrderNo, processType, location, equipmentId, maintenanceType, requestType, vendorName, poNumber, materialDesc, quantity, bay. No explanation, just JSON.`;
+      const deptPrompts = {
+        Production: "workOrderNo, productName, processType, priority, targetQuantity, unit, location, equipment, date, shift, duration, description",
+        Maintenance: "equipmentId, title, maintenanceType, location, estimatedDowntime, spareParts, technician, date, shift, duration, description",
+        "Quality Control": "inspectionType, batchRef, productName, priority, sampleSize, qcStation, defectType, disposition, date, shift, duration, description",
+        Logistics: "requestType, vendorName, poNumber, materialDesc, quantity, bay, vehicleRequired, arrivalTime, date, shift, priority, description",
+      };
+      const fieldList = deptPrompts[department] || "workOrderNo, productName, processType, priority, location, equipment, date, shift, duration, description";
+      const prompt = `Extract these fields from the document text and return ONLY JSON (null if missing): ${fieldList}. No explanation, just JSON.`;
       const result = await aiExtract(prompt, { base64, mediaType: file.type }, department);
       if (!result.parsed) throw new Error("Could not parse");
       console.log("AI parsed:", result.parsed);
@@ -233,13 +240,18 @@ function ProductionForm({ form, onChange }) {
             <option>Bay 3</option>
           </select>
         </Field>
-        <Field label="Operational Impact">
-          <select value={form.impact || ""} onChange={e => onChange("impact", e.target.value)}>
+        <Field label="Equipment / Machine">
+          <select value={form.equipment || ""} onChange={e => onChange("equipment", e.target.value)}>
             <option value="">— Select —</option>
-            <option>No disruption</option>
-            <option>Minor disruption</option>
-            <option>Partial shutdown</option>
-            <option>Full line stop</option>
+            <option>Sanding Machine S-01</option>
+            <option>Sanding Machine S-02</option>
+            <option>Welding Machine W-01</option>
+            <option>Welding Machine W-02</option>
+            <option>CNC Machine C-01</option>
+            <option>Assembly Station A-01</option>
+            <option>Assembly Station A-02</option>
+            <option>Painting Booth P-01</option>
+            <option>Packaging Line PK-01</option>
           </select>
         </Field>
       </div>
@@ -664,7 +676,11 @@ export function NewRecord({ onViewConflicts, department, openConflictCount = 0 }
           recommendation: data?.aiSummary?.recommendation || "Review and coordinate with the affected department.",
         });
       } else {
+        setForm({ priority: "Normal", shift: "Morning" });
+        setSelectedMachine(null);
+        setAiSuggestedFields([]);
         setRecordAdded(true);
+        setTimeout(() => setRecordAdded(false), 3000);
       }
     } catch (err) {
       console.error(err);
@@ -730,24 +746,7 @@ export function NewRecord({ onViewConflicts, department, openConflictCount = 0 }
         {department === "Quality Control" && <QualityControlForm form={form} onChange={handleChange} />}
         {department === "Logistics" && <LogisticsForm form={form} onChange={handleChange} />}
 
-        {/* Machine availability — shows after date + shift selected */}
-        {(department === "Production" || department === "Quality Control" || department === "Logistics") && (
-          <MachineAvailability
-            date={form.date}
-            shift={form.shift}
-            type={getMachineType()}
-            department={department}
-            onSelect={handleMachineSelect}
-            selectedMachineId={selectedMachine?.id}
-            accent={config.accent}
-          />
-        )}
-
-        {selectedMachine && (
-          <div style={{ marginTop: 8, fontSize: 13, color: config.text, fontWeight: 500 }}>
-            ✓ Selected: <strong>{selectedMachine.name}</strong> — {selectedMachine.location}
-          </div>
-        )}
+        {/* Machine availability removed - use Request Machine tab instead */}
 
         {/* Actions */}
         <div className="form-actions">

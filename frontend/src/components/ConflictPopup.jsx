@@ -92,7 +92,9 @@ function RecordCard({ recordId, record, department, label }) {
   const shift = record?.shift || null;
   const date = record?.date || null;
   const processType = record?.processType || record?.maintenanceType || record?.inspectionType || record?.requestType || null;
-  const workOrderNo = record?.workOrderNo || record?.batchRef || record?.poNumber || null;
+  const workOrderNo = (record?.workOrderNo || record?.batchRef || record?.poNumber) !== title 
+    ? (record?.workOrderNo || record?.batchRef || record?.poNumber) 
+    : null;
 
   return (
     <div style={{ flex: 1, background: "#f8fafc", border: "1.5px solid #e2e8f0", borderRadius: 12, padding: "14px 16px" }}>
@@ -130,13 +132,26 @@ export default function ConflictPopup({ conflict, role, name, department, onClos
   const isResolved       = localStatus === "resolved" || localStatus === "overridden";
 
   const conflictReason = conflict.conflictReason || conflict.issue_summary || "Conflict detected";
-  const aiSummaryText  = typeof conflict.aiSummary === "string" ? conflict.aiSummary : conflict.aiSummary?.conflictReason || conflict.issue_summary || "";
-  const recommendation = conflict.recommendation || (typeof conflict.aiSummary === "object" ? conflict.aiSummary?.recommendation : null) || conflict.ai_recommendation || "";
+  const aiSummary = conflict.aiSummary || {};
+  const aiSummaryText = typeof aiSummary === "string" ? aiSummary :
+    [aiSummary.conflictReason, aiSummary.whyConflicts, aiSummary.risk, aiSummary.impact]
+      .filter(Boolean).join(" ") || aiSummary.conflictReason || conflict.issue_summary || "";
+  const recommendation = conflict.recommendation || (typeof aiSummary === "object" ? aiSummary?.recommendation : null) || conflict.ai_recommendation || "";
   const confidence     = conflict.confidence || 0;
   const departments    = conflict.departmentsInvolved || [];
   const escalationNeeded = conflict.aiSummary?.escalationNeeded || false;
   const shortTitle     = makeShortTitle(conflictReason, departments);
-  const summaryPoints  = parsePoints(aiSummaryText);
+  // Use structured fields if available, otherwise parse from text
+  const structuredPoints = [
+    aiSummary.conflictReason ? { label: "What happened", text: aiSummary.conflictReason } : null,
+    aiSummary.whyConflicts ? { label: "Why it conflicts", text: aiSummary.whyConflicts } : null,
+    aiSummary.risk ? { label: "Risk", text: aiSummary.risk } : null,
+    aiSummary.impact ? { label: "Impact", text: aiSummary.impact } : null,
+  ].filter(Boolean);
+  const summaryPoints = structuredPoints.length > 0 ? structuredPoints : parsePoints(aiSummaryText).map((text, i) => ({
+    label: ["What happened", "Why it conflicts", "Risk", "Impact", "Note"][i] || "Detail",
+    text,
+  }));
   const topRecommendation = parsePoints(recommendation)[0] || recommendation;
 
   const categories = detectConflictCategories(aiSummaryText, conflictReason);
@@ -272,15 +287,12 @@ export default function ConflictPopup({ conflict, role, name, department, onClos
 
             {summaryPoints.length > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {summaryPoints.map((point, i) => {
-                  const labels = ["What happened", "Why it conflicts", "Risk", "Impact", "Note"];
-                  return (
-                    <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "#16a34a", minWidth: 120, flexShrink: 0, textAlign: "left" }}>{labels[i] || "Detail"}:</span>
-                      <span style={{ fontSize: 13, color: "#166534", lineHeight: 1.6, textAlign: "left", flex: 1 }}>{point}</span>
-                    </div>
-                  );
-                })}
+                {summaryPoints.map((point, i) => (
+                  <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "#16a34a", minWidth: 120, flexShrink: 0, textAlign: "left" }}>{point.label}:</span>
+                    <span style={{ fontSize: 13, color: "#166534", lineHeight: 1.6, textAlign: "left", flex: 1 }}>{point.text}</span>
+                  </div>
+                ))}
               </div>
             ) : (
               <p style={{ fontSize: 13, color: "#166534", margin: 0, textAlign: "left", lineHeight: 1.6 }}>{aiSummaryText || "No summary available."}</p>
