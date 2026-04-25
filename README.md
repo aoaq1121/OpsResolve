@@ -2,6 +2,8 @@
 
 OpsResolve is an AI-powered manufacturing operations management system designed to detect, analyse, and resolve scheduling conflicts between departments in real time.
 
+# PITCHING VIDEO LINK
+
 ---
 
 ## Overview
